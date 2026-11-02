@@ -13,4 +13,4 @@ pipeline = transformers.pipeline(
 )
 print("Model loaded successfully!")
 print(pipeline.model.hf_device_map)
-pipeline("Hey how are you doing today?")
+print(pipeline("Hey how are you doing today?"))
