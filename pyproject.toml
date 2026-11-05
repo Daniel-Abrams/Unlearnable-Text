@@ -1,0 +1,21 @@
+[project]
+name = "unlearnabletext"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Daniel-Abrams", email = "danlab1104@gmail.com" }
+]
+requires-python = ">=3.14"
+dependencies = [
+    "huggingface-hub>=2.4.0",
+    "peft>=0.21.2",
+    "transformers>=5.22.1",
+]
+
+[project.scripts]
+unlearnabletext = "unlearnabletext:main"
+
+[build-system]
+requires = ["uv_build>=0.12.6,<0.13.0"]
+build-backend = "uv_build"
