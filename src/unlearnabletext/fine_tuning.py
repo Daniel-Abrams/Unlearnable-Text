@@ -54,18 +54,20 @@ def finetuneWithLora():
     num_epochs=3
     
     # Set up LoRA mode
+    print(f"Loading model {model_id}...")
     peft_config = LoraConfig(target_modules=["q_proj"], task_type=TaskType.CAUSAL_LM, inference_mode=False, r=8, lora_alpha=32, lora_dropout=0.1)
     model = AutoModelForCausalLM.from_pretrained("meta-llama/Meta-Llama-3-8B")
     peft_model = get_peft_model(model, peft_config)
     
     # get ARC challenge dataset, set up tokenizer and tokenize dataset
+    print(f"Loading ARC Challenge training data")
     arc_challenge_train_dataset = load_dataset("allenai/ai2_arc", "ARC-Challenge", split="train")
     fomatted_dataset = arc_challenge_train_dataset.map(format_example)
     tokenizer = AutoTokenizer.from_pretrained(model_id)
     tokenized_dataset = fomatted_dataset.map(tokenize, batched=True, fn_kwargs={"tokenizer": tokenizer})
     data_collator = data_collator = DataCollatorForSeq2Seq(tokenizer=tokenizer,padding=True,label_pad_token_id=-100)    
     
-    
+    print("Setting up trainer...")
     training_args = TrainingArguments(
     output_dir="./lora_output",
     per_device_train_batch_size=batch_size,
@@ -84,10 +86,13 @@ def finetuneWithLora():
         train_dataset=tokenized_dataset,
         data_collator=data_collator,
     )
+    print(f"Setup complete. Training starting...")
     trainer.train()
-    
+    print(f"Training Complete, saving model and tokenizer...")
+
     # Save
     peft_model.save_pretrained("./arc_challenge_lora_adapter")
     tokenizer.save_pretrained("./arc_challenge_lora_adapter")
+    print("Done.")
 
 
