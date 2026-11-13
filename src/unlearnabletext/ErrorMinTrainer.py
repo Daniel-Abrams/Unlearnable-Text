@@ -62,8 +62,8 @@ class ErrorMinTrainer(Trainer):
             for position, replacement in zip(positions, replacements):
                 cos_sim = F.cosine_similarity(inputs_embeds[index, position], embedding_matrix[replacement], dim=0).item()
                 if cos_sim >= self.similarity_threshold:
-                    self.replacements.append((index,position,replacement))
-                    inputs["input_ids"][index, self.target_index] = replacement
+                    self.replacements.append((index,position.item(),replacement.item()))
+                    inputs["input_ids"][index, position] = replacement
                     break
     
     # Runs every batch. If the training step mod update rate is 0
@@ -74,16 +74,9 @@ class ErrorMinTrainer(Trainer):
             if self.eval_loss is None or eval_results['eval_loss'] > self.eval_loss:
                 self.eval_loss = eval_results['eval_loss']
             else:
-                print("should stop")
                 self.control.should_training_stop = True
-                return
+                
             print("Evaluation finished")
-
-            print(
-                f"GPU memory allocated: "
-                f"{torch.cuda.memory_allocated() / 1024**3:.2f} GB"
-            )
-
             print("Starting noise optimization")
             self.optimize_noise(model=model, inputs=inputs)
             print("Noise optimization finished")
