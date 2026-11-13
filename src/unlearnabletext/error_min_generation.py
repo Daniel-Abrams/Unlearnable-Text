@@ -26,8 +26,8 @@ def fineTuneWithErrorMin():
     data_collator = DataCollatorForSeq2Seq(tokenizer=tokenizer,padding=True,label_pad_token_id=-100)
     
     print(f"Loading ARC Challenge evaluation data")
-    arc_challenge_train_dataset = load_dataset("allenai/ai2_arc", "ARC-Challenge", split="test")
-    fomatted_eval_dataset = arc_challenge_train_dataset.map(format_example)
+    arc_challenge_eval_dataset = load_dataset("allenai/ai2_arc", "ARC-Challenge", split="test")
+    fomatted_eval_dataset = arc_challenge_eval_dataset.map(format_example)
     tokenized_eval_dataset = fomatted_eval_dataset.map(tokenize, batched=True, fn_kwargs={"tokenizer": tokenizer})
     
     print("Setting up trainer...")
