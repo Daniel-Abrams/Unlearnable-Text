@@ -23,6 +23,7 @@ def format_example(example):
     completion = f" {example['answerKey']}"
 
     return {
+        "sample_id": example['id'],
         "prompt": prompt,
         "completion": completion
     }
@@ -41,7 +42,6 @@ def tokenize(example, tokenizer: AutoTokenizer):
     labels = ([-100] * len(prompt_ids)+ completion_ids)
 
     return {
-        "sample_id": example['id'],
         "input_ids": input_ids,
         "attention_mask": [1] * len(input_ids),
         "labels": labels
@@ -71,6 +71,7 @@ def finetuneWithLora():
     
     print("Setting up trainer...")
     training_args = TrainingArguments(
+    remove_unused_columns=False,
     output_dir="./lora_output",
     per_device_train_batch_size=batch_size,
     gradient_accumulation_steps=4,
@@ -83,7 +84,6 @@ def finetuneWithLora():
 
     # Train the model
     trainer = Trainer(
-        remove_unused_columns=False,
         model=peft_model,
         args=training_args,
         train_dataset=tokenized_dataset,

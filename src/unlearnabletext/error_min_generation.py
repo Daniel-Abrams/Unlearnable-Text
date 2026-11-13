@@ -28,10 +28,11 @@ def fineTuneWithErrorMin():
     print(f"Loading ARC Challenge evaluation data")
     arc_challenge_eval_dataset = load_dataset("allenai/ai2_arc", "ARC-Challenge", split="test")
     fomatted_eval_dataset = arc_challenge_eval_dataset.map(format_example)
-    tokenized_eval_dataset = fomatted_eval_dataset.map(tokenize, batched=True, fn_kwargs={"tokenizer": tokenizer})
+    tokenized_eval_dataset = fomatted_eval_dataset.map(tokenize, batched=False, fn_kwargs={"tokenizer": tokenizer})
     
     print("Setting up trainer...")
     training_args = TrainingArguments(
+    remove_unused_columns=False,
     output_dir="./lora_error_min_output",
     per_device_train_batch_size=batch_size,
     learning_rate=lr,

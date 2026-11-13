@@ -12,7 +12,7 @@ class ErrorMinTrainer(Trainer):
     eval_loss = None
     
     def __init__(self, model, args, train_dataset, eval_dataset, data_collator, similarity_threshold, update_rate):
-        super().__init__(model=model, args=args, train_dataset=train_dataset, eval_dataset=eval_dataset, data_collator=data_collator, remove_unused_columns=False)
+        super().__init__(model=model, args=args, train_dataset=train_dataset, eval_dataset=eval_dataset, data_collator=data_collator)
         self.similarity_threshold = similarity_threshold
         self.update_rate = update_rate
     
