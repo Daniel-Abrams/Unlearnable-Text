@@ -70,6 +70,7 @@ class ErrorMinTrainer(Trainer):
             eval_results = self.evaluate()
             if self.eval_loss is None or eval_results['eval_loss'] > self.eval_loss:
                 self.eval_loss = eval_results['eval_loss']
+                print(f"Current evaluation loss: {self.eval_loss}")
             else:
                 self.control.should_training_stop = True
                 return
