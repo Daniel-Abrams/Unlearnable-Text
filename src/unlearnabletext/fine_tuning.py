@@ -41,6 +41,7 @@ def tokenize(example, tokenizer: AutoTokenizer):
     labels = ([-100] * len(prompt_ids)+ completion_ids)
 
     return {
+        "sample_id": example['id'],
         "input_ids": input_ids,
         "attention_mask": [1] * len(input_ids),
         "labels": labels
@@ -82,6 +83,7 @@ def finetuneWithLora():
 
     # Train the model
     trainer = Trainer(
+        remove_unused_columns=False,
         model=peft_model,
         args=training_args,
         train_dataset=tokenized_dataset,

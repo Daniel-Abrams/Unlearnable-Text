@@ -12,7 +12,7 @@ class ErrorMinTrainer(Trainer):
     eval_loss = None
     
     def __init__(self, model, args, train_dataset, eval_dataset, data_collator, similarity_threshold, update_rate):
-        super().__init__(model=model, args=args, train_dataset=train_dataset, eval_dataset=eval_dataset, data_collator=data_collator)
+        super().__init__(model=model, args=args, train_dataset=train_dataset, eval_dataset=eval_dataset, data_collator=data_collator, remove_unused_columns=False)
         self.similarity_threshold = similarity_threshold
         self.update_rate = update_rate
     
@@ -22,6 +22,7 @@ class ErrorMinTrainer(Trainer):
         embedding_matrix = embedding_layer.weight
 
         inputs_embeds = model.get_input_embeddings()(inputs["input_ids"])
+        inputs_embeds.requires_grad_(True)
         inputs_embeds.retain_grad()
 
         # Run a forward pass to compute the initial loss
@@ -44,7 +45,6 @@ class ErrorMinTrainer(Trainer):
         # Compute and apply the noise for each item in the batch
         sample_ids = inputs.pop("sample_id")
         for index, (sample, sample_id) in enumerate(zip(input_grads, sample_ids)):
-            
             # First order approximation for token substitutions that minimize error.
             replacement_matrix = sample @ embedding_matrix.T
             flat_scores = replacement_matrix.flatten()
