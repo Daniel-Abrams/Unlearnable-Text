@@ -65,7 +65,7 @@ def finetuneWithLora():
     fomatted_dataset = arc_challenge_train_dataset.map(format_example)
     tokenizer = AutoTokenizer.from_pretrained(model_id)
     tokenized_dataset = fomatted_dataset.map(tokenize, batched=True, fn_kwargs={"tokenizer": tokenizer})
-    data_collator = data_collator = DataCollatorForSeq2Seq(tokenizer=tokenizer,padding=True,label_pad_token_id=-100)    
+    data_collator = DataCollatorForSeq2Seq(tokenizer=tokenizer,padding=True,label_pad_token_id=-100)    
     
     print("Setting up trainer...")
     training_args = TrainingArguments(
