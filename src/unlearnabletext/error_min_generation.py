@@ -32,7 +32,6 @@ def fineTuneWithErrorMin():
     
     print("Setting up trainer...")
     training_args = TrainingArguments(
-    remove_unused_columns=False,
     output_dir="./lora_error_min_output",
     per_device_train_batch_size=batch_size,
     learning_rate=lr,

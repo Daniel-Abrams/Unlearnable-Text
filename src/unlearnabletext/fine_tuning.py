@@ -23,7 +23,6 @@ def format_example(example):
     completion = f" {example['answerKey']}"
 
     return {
-        "sample_id": example['id'],
         "prompt": prompt,
         "completion": completion
     }

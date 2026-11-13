@@ -43,12 +43,15 @@ class ErrorMinTrainer(Trainer):
         )[0]
         
         # Compute and apply the noise for each item in the batch
-        sample_ids = inputs.pop("sample_id")
-        for index, (sample, sample_id) in enumerate(zip(input_grads, sample_ids)):
+        for index, sample, in enumerate(input_grads):
             # First order approximation for token substitutions that minimize error.
             replacement_matrix = sample @ embedding_matrix.T
             flat_scores = replacement_matrix.flatten()
-            sorted_indices = torch.argsort(flat_scores)
+            top_values, sorted_indices = torch.topk(
+                flat_scores,
+                k=10000,
+                largest=False
+            )
             
             # Dividing by the number of columns gives the row, which corresponds to the sequence position
             positions = sorted_indices // replacement_matrix.shape[1]
@@ -57,9 +60,9 @@ class ErrorMinTrainer(Trainer):
             
             # Iterate through the sorted list and look for candidates that meet similarity requirement
             for position, replacement in zip(positions, replacements):
-                cos_sim = F.cosine_similarity(inputs_embeds[position], embedding_matrix[replacement], dim=0).item()
+                cos_sim = F.cosine_similarity(inputs_embeds[index, position], embedding_matrix[replacement], dim=0).item()
                 if cos_sim >= self.similarity_threshold:
-                    self.replacements.append((sample_id,position,replacement))
+                    self.replacements.append((index,position,replacement))
                     inputs["input_ids"][index, self.target_index] = replacement
                     break
     
@@ -70,11 +73,20 @@ class ErrorMinTrainer(Trainer):
             eval_results = self.evaluate()
             if self.eval_loss is None or eval_results['eval_loss'] > self.eval_loss:
                 self.eval_loss = eval_results['eval_loss']
-                print(f"Current evaluation loss: {self.eval_loss}")
             else:
+                print("should stop")
                 self.control.should_training_stop = True
                 return
-            
+            print("Evaluation finished")
+
+            print(
+                f"GPU memory allocated: "
+                f"{torch.cuda.memory_allocated() / 1024**3:.2f} GB"
+            )
+
+            print("Starting noise optimization")
+            self.optimize_noise(model=model, inputs=inputs)
+            print("Noise optimization finished")
             self.optimize_noise(model=model, inputs=inputs)
                     
         # Complete normal training, updating grad accumulation
