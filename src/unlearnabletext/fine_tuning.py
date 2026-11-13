@@ -55,7 +55,7 @@ def finetuneWithLora():
     
     # Set up LoRA mode
     print(f"Loading model {model_id}...")
-    peft_config = LoraConfig(target_modules=["q_proj"], task_type=TaskType.CAUSAL_LM, inference_mode=False, r=8, lora_alpha=32, lora_dropout=0.1)
+    peft_config = LoraConfig(target_modules=["q_proj"], task_type=TaskType.QUESTION_ANS, inference_mode=False, r=8, lora_alpha=32, lora_dropout=0.1)
     model = AutoModelForCausalLM.from_pretrained("meta-llama/Meta-Llama-3-8B")
     peft_model = get_peft_model(model, peft_config)
     
@@ -64,7 +64,8 @@ def finetuneWithLora():
     arc_challenge_train_dataset = load_dataset("allenai/ai2_arc", "ARC-Challenge", split="train")
     fomatted_dataset = arc_challenge_train_dataset.map(format_example)
     tokenizer = AutoTokenizer.from_pretrained(model_id)
-    tokenized_dataset = fomatted_dataset.map(tokenize, batched=True, fn_kwargs={"tokenizer": tokenizer})
+    tokenizer.pad_token = tokenizer.eos_token
+    tokenized_dataset = fomatted_dataset.map(tokenize, batched=False, fn_kwargs={"tokenizer": tokenizer})
     data_collator = DataCollatorForSeq2Seq(tokenizer=tokenizer,padding=True,label_pad_token_id=-100)    
     
     print("Setting up trainer...")
