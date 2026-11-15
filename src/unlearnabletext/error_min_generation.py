@@ -12,13 +12,13 @@ def fineTuneWithErrorMin():
     
     # Set up LoRA mode
     print(f"Loading model {model_id}...")
-    peft_config = LoraConfig(target_modules=["q_proj"], task_type=TaskType.QUESTION_ANS, inference_mode=False, r=8, lora_alpha=32, lora_dropout=0.1)
     model = AutoModelForCausalLM.from_pretrained("meta-llama/Meta-Llama-3-8B")
     peft_model = get_peft_model(model, peft_config)
     
     # get ARC challenge dataset, set up tokenizer and tokenize dataset
     print(f"Loading ARC Challenge training data")
     arc_challenge_train_dataset = load_dataset("allenai/ai2_arc", "ARC-Challenge", split="train")
+    train_ids = arc_challenge_train_dataset["id"] #get ids separately
     fomatted_train_dataset = arc_challenge_train_dataset.map(format_example)
     tokenizer = AutoTokenizer.from_pretrained(model_id)
     tokenizer.pad_token = tokenizer.eos_token
@@ -27,8 +27,8 @@ def fineTuneWithErrorMin():
     
     print(f"Loading ARC Challenge evaluation data")
     arc_challenge_eval_dataset = load_dataset("allenai/ai2_arc", "ARC-Challenge", split="test")
-    fomatted_eval_dataset = arc_challenge_eval_dataset.map(format_example)
-    tokenized_eval_dataset = fomatted_eval_dataset.map(tokenize, batched=False, fn_kwargs={"tokenizer": tokenizer})
+    formatted_eval_dataset = arc_challenge_eval_dataset.map(format_example)
+    tokenized_eval_dataset = formatted_eval_dataset.map(tokenize, batched=False, fn_kwargs={"tokenizer": tokenizer})
     
     print("Setting up trainer...")
     training_args = TrainingArguments(
@@ -49,7 +49,8 @@ def fineTuneWithErrorMin():
         eval_dataset=tokenized_eval_dataset,
         similarity_threshold=0.5,
         update_rate=30,
-        data_collator=data_collator
+        data_collator=data_collator,
+        train_ids=train_ids
     )
 
     print(f"Setup complete. Training starting...")

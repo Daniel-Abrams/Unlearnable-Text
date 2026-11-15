@@ -8,15 +8,37 @@ import numpy as np
 
 # Class for generating error-minimizing perturbations
 class ErrorMinTrainer(Trainer):
-    replacements = []
+    #replacements = []
     eval_loss = None
     
-    def __init__(self, model, args, train_dataset, eval_dataset, data_collator, similarity_threshold, update_rate):
+    def __init__(self, model, args, train_dataset, eval_dataset, data_collator, similarity_threshold, update_rate, train_ids):
         super().__init__(model=model, args=args, train_dataset=train_dataset, eval_dataset=eval_dataset, data_collator=data_collator)
         self.similarity_threshold = similarity_threshold
         self.update_rate = update_rate
+        self.noise = {}
+        self.token_to_id = {tuple(sample["input_ids"]): arc_id for arc_id, sample in zip(train_ids, train_dataset)}
+        
+
+    def get_arc_ids(self, inputs):
+        arc_ids, starts = [], []
+        for ids, mask in zip(inputs["input_ids"], inputs["attention_mask"]):
+            start = mask.nonzero()[0].item()
+            non_padding = ids[mask.bool()].tolist()
+            key = tuple(non_padding)
+            arc_ids.append(self.token_to_id[key])
+            starts.append(start)
+        return arc_ids, starts
+
+    def apply_noise(self, inputs, arc_ids, starts):
+        for bid, arc_id in enumerate(arc_ids):
+            if arc_id in self.noise:
+                pos, token = self.noise.get(arc_id)
+                inputs["input_ids"][bid, pos + starts[bid]] = token
+
+            
+
     
-    def optimize_noise(self, model, inputs):
+    def optimize_noise(self, model, inputs, arc_ids, starts):
         # Get embedding matrix
         embedding_layer = model.get_input_embeddings()
         embedding_matrix = embedding_layer.weight
@@ -62,12 +84,17 @@ class ErrorMinTrainer(Trainer):
             for position, replacement in zip(positions, replacements):
                 cos_sim = F.cosine_similarity(inputs_embeds[index, position], embedding_matrix[replacement], dim=0).item()
                 if cos_sim >= self.similarity_threshold:
-                    self.replacements.append((index,position.item(),replacement.item()))
-                    inputs["input_ids"][index, position] = replacement
+                    #self.replacements.append((index,position.item(),replacement.item()))
+                    self.noise[arc_ids[index]] = (position.item() - starts[index], replacement.item())
+                    #edit our batch outside of the noise optimization step (metches closer to algorithm 1)
+                    #inputs["input_ids"][index, position] = replacement
                     break
     
     # Runs every batch. If the training step mod update rate is 0
     def training_step(self, model, inputs, num_items_in_batch=None):
+        
+        arc_ids, starts = self.get_arc_ids(inputs)
+
         if self.state.global_step % self.update_rate == 0:
             # Test metric
             eval_results = self.evaluate()
@@ -78,9 +105,10 @@ class ErrorMinTrainer(Trainer):
                 
             print("Evaluation finished")
             print("Starting noise optimization")
-            self.optimize_noise(model=model, inputs=inputs)
+            self.optimize_noise(model=model, inputs=inputs, arc_ids=arc_ids, starts=starts)
             print("Noise optimization finished")
-            self.optimize_noise(model=model, inputs=inputs)
+
+        self.apply_noise(inputs, arc_ids, starts)
                     
         # Complete normal training, updating grad accumulation
         return super().training_step(model, inputs, num_items_in_batch)
