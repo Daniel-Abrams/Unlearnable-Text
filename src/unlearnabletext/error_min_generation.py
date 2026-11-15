@@ -12,6 +12,7 @@ def fineTuneWithErrorMin():
     
     # Set up LoRA mode
     print(f"Loading model {model_id}...")
+    peft_config = LoraConfig(target_modules=["q_proj"], task_type=TaskType.QUESTION_ANS, inference_mode=False, r=8, lora_alpha=32, lora_dropout=0.1)
     model = AutoModelForCausalLM.from_pretrained("meta-llama/Meta-Llama-3-8B")
     peft_model = get_peft_model(model, peft_config)
     

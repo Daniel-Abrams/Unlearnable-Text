@@ -2,7 +2,7 @@ from transformers import Trainer
 import torch.nn.functional as F
 import torch
 import numpy as np
-
+from collections import defaultdict
 
 
 
@@ -15,9 +15,8 @@ class ErrorMinTrainer(Trainer):
         super().__init__(model=model, args=args, train_dataset=train_dataset, eval_dataset=eval_dataset, data_collator=data_collator)
         self.similarity_threshold = similarity_threshold
         self.update_rate = update_rate
-        self.noise = {}
+        self.noise = defaultdict(list)
         self.token_to_id = {tuple(sample["input_ids"]): arc_id for arc_id, sample in zip(train_ids, train_dataset)}
-        
 
     def get_arc_ids(self, inputs):
         arc_ids, starts = [], []
@@ -32,11 +31,8 @@ class ErrorMinTrainer(Trainer):
     def apply_noise(self, inputs, arc_ids, starts):
         for bid, arc_id in enumerate(arc_ids):
             if arc_id in self.noise:
-                pos, token = self.noise.get(arc_id)
-                inputs["input_ids"][bid, pos + starts[bid]] = token
-
-            
-
+                for pos, token in self.noise.get(arc_id):
+                    inputs["input_ids"][bid, pos + starts[bid]] = token
     
     def optimize_noise(self, model, inputs, arc_ids, starts):
         # Get embedding matrix
@@ -85,9 +81,9 @@ class ErrorMinTrainer(Trainer):
                 cos_sim = F.cosine_similarity(inputs_embeds[index, position], embedding_matrix[replacement], dim=0).item()
                 if cos_sim >= self.similarity_threshold:
                     #self.replacements.append((index,position.item(),replacement.item()))
-                    self.noise[arc_ids[index]] = (position.item() - starts[index], replacement.item())
+                    self.noise[arc_ids[index]].append((position.item() - starts[index], replacement.item()))
                     #edit our batch outside of the noise optimization step (metches closer to algorithm 1)
-                    #inputs["input_ids"][index, position] = replacement
+                    #inputs["input_ids"][index, position] = replacement]
                     break
     
     # Runs every batch. If the training step mod update rate is 0
@@ -101,7 +97,7 @@ class ErrorMinTrainer(Trainer):
             if self.eval_loss is None or eval_results['eval_loss'] > self.eval_loss:
                 self.eval_loss = eval_results['eval_loss']
             else:
-                self.control.should_training_stop = True
+                #self.control.should_training_stop = True
                 
             print("Evaluation finished")
             print("Starting noise optimization")
