@@ -14,7 +14,7 @@ def format_example(example):
     )
 
     prompt = (
-        f"Question: {example['question']}\n"
+        f"{example['question']}\n"
         f"Choices:\n{choices}\n"
         f"Answer:"
     )
@@ -32,15 +32,16 @@ def tokenize(example, tokenizer: AutoTokenizer):
     
     # Adding special tokers adds structural markers like <bos>, <eos>
     prompt_ids = tokenizer(example["prompt"], add_special_tokens=True)["input_ids"]
-    
+    question_ids = tokenizer(example["question"],add_special_tokens=True)["input_ids"]
     completion_ids = tokenizer(example["completion"], add_special_tokens=False)["input_ids"]
     input_ids = prompt_ids + completion_ids
-
+    
     # Labels with -100 will be ignored when calculating the loss. 
     # The model will only try to predict the completion, not the input text
     labels = ([-100] * len(prompt_ids)+ completion_ids)
 
     return {
+        "question_length": len(question_ids),
         "input_ids": input_ids,
         "attention_mask": [1] * len(input_ids),
         "labels": labels

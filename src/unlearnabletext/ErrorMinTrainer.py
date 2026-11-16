@@ -1,4 +1,4 @@
-from transformers import Trainer
+from transformers import Trainer, AutoTokenizer
 import torch.nn.functional as F
 import torch
 import numpy as np
@@ -11,12 +11,14 @@ class ErrorMinTrainer(Trainer):
     #replacements = []
     eval_loss = None
     
-    def __init__(self, model, args, train_dataset, eval_dataset, data_collator, similarity_threshold, update_rate, train_ids):
+    def __init__(self, model, args, train_dataset, eval_dataset, data_collator, similarity_threshold, update_rate, train_ids, tokenizer: AutoTokenizer):
         super().__init__(model=model, args=args, train_dataset=train_dataset, eval_dataset=eval_dataset, data_collator=data_collator)
         self.similarity_threshold = similarity_threshold
         self.update_rate = update_rate
         self.noise = defaultdict(list)
         self.token_to_id = {tuple(sample["input_ids"]): arc_id for arc_id, sample in zip(train_ids, train_dataset)}
+        self.tokenizer = tokenizer
+        self.modified_examples = {}
 
     def get_arc_ids(self, inputs):
         arc_ids, starts = [], []
@@ -28,13 +30,19 @@ class ErrorMinTrainer(Trainer):
             starts.append(start)
         return arc_ids, starts
 
-    def apply_noise(self, inputs, arc_ids, starts):
-        for bid, arc_id in enumerate(arc_ids):
+    def apply_noise(self, inputs, arc_ids, starts, question_lengths):
+        for bid, (arc_id, question_length) in enumerate(zip(arc_ids, question_lengths)):
             if arc_id in self.noise:
                 for pos, token in self.noise.get(arc_id):
                     inputs["input_ids"][bid, pos + starts[bid]] = token
-    
-    def optimize_noise(self, model, inputs, arc_ids, starts):
+                    self.modified_examples[arc_id] = self.tokenizer.decode(
+                        inputs["input_ids"][bid][:question_length],
+                        skip_special_tokens=True,
+                        clean_up_tokenization_spaces=False
+                    ).strip()
+                    print(self.modified_examples[arc_id])
+                    
+    def optimize_noise(self, model, inputs, arc_ids, starts, question_lengths):
         # Get embedding matrix
         embedding_layer = model.get_input_embeddings()
         embedding_matrix = embedding_layer.weight
@@ -61,13 +69,13 @@ class ErrorMinTrainer(Trainer):
         )[0]
         
         # Compute and apply the noise for each item in the batch
-        for index, sample, in enumerate(input_grads):
+        for index, (sample,question_length) in enumerate(zip(input_grads,question_lengths)):
             # First order approximation for token substitutions that minimize error.
             replacement_matrix = sample @ embedding_matrix.T
             flat_scores = replacement_matrix.flatten()
             top_values, sorted_indices = torch.topk(
                 flat_scores,
-                k=10000,
+                k=100000,
                 largest=False
             )
             
@@ -78,33 +86,34 @@ class ErrorMinTrainer(Trainer):
             
             # Iterate through the sorted list and look for candidates that meet similarity requirement
             for position, replacement in zip(positions, replacements):
-                cos_sim = F.cosine_similarity(inputs_embeds[index, position], embedding_matrix[replacement], dim=0).item()
-                if cos_sim >= self.similarity_threshold:
-                    #self.replacements.append((index,position.item(),replacement.item()))
-                    self.noise[arc_ids[index]].append((position.item() - starts[index], replacement.item()))
-                    #edit our batch outside of the noise optimization step (metches closer to algorithm 1)
-                    #inputs["input_ids"][index, position] = replacement]
-                    break
+                if position >= question_length:
+                    cos_sim = F.cosine_similarity(inputs_embeds[index, position], embedding_matrix[replacement], dim=0).item()
+                    if cos_sim >= self.similarity_threshold and replacement_matrix[position,replacement] < 0:
+                        #self.replacements.append((index,position.item(),replacement.item()))
+                        self.noise[arc_ids[index]].append((position.item() - starts[index], replacement.item()))
+                        #edit our batch outside of the noise optimization step (metches closer to algorithm 1)
+                        #inputs["input_ids"][index, position] = replacement]
+                        break
     
     # Runs every batch. If the training step mod update rate is 0
     def training_step(self, model, inputs, num_items_in_batch=None):
         
         arc_ids, starts = self.get_arc_ids(inputs)
-
+        question_lengths = inputs.pop("question_length")
         if self.state.global_step % self.update_rate == 0:
             # Test metric
             eval_results = self.evaluate()
             if self.eval_loss is None or eval_results['eval_loss'] > self.eval_loss:
                 self.eval_loss = eval_results['eval_loss']
             else:
-                #self.control.should_training_stop = True
+                self.control.should_training_stop = True
                 
             print("Evaluation finished")
             print("Starting noise optimization")
-            self.optimize_noise(model=model, inputs=inputs, arc_ids=arc_ids, starts=starts)
+            self.optimize_noise(model=model, inputs=inputs, arc_ids=arc_ids, starts=starts, question_lengths=question_lengths)
             print("Noise optimization finished")
 
-        self.apply_noise(inputs, arc_ids, starts)
+        self.apply_noise(inputs, arc_ids, starts, question_lengths)
                     
         # Complete normal training, updating grad accumulation
         return super().training_step(model, inputs, num_items_in_batch)
