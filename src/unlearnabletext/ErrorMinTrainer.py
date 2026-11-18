@@ -30,15 +30,19 @@ class ErrorMinTrainer(Trainer):
         return arc_ids, starts
 
     def apply_noise(self, inputs, arc_ids, starts, question_lengths):
+        s_changed = 0
         for bid, (arc_id, question_length) in enumerate(zip(arc_ids, question_lengths)):
             if arc_id in self.noise:
                 for pos, token in self.noise.get(arc_id):
                     inputs["input_ids"][bid, pos + starts[bid]] = token
-                    self.modified_examples[arc_id] = self.tokenizer.decode(
-                        inputs["input_ids"][bid][:question_length],
-                        skip_special_tokens=True,
-                        clean_up_tokenization_spaces=False
-                    ).strip()
+                self.modified_examples[arc_id] = self.tokenizer.decode(
+                    inputs["input_ids"][bid][:question_length],
+                    skip_special_tokens=True,
+                    clean_up_tokenization_spaces=False
+                ).strip()
+                s_changed += 1
+        print(f"Samples modified: {s_changed}")
+                
                     
     def optimize_noise(self, model, inputs, arc_ids, starts, question_lengths):
         # Get embedding matrix
