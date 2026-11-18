@@ -4,14 +4,12 @@ import torch
 import numpy as np
 from collections import defaultdict
 
-
-
 # Class for generating error-minimizing perturbations
 class ErrorMinTrainer(Trainer):
     #replacements = []
     eval_loss = None
     
-    def __init__(self, model, args, train_dataset, eval_dataset, data_collator, similarity_threshold, update_rate, train_ids, tokenizer: AutoTokenizer):
+    def __init__(self, model, args, train_dataset, eval_dataset, data_collator, similarity_threshold, update_rate, train_ids, tokenizer: AutoTokenizer, replacements_per_example=1):
         super().__init__(model=model, args=args, train_dataset=train_dataset, eval_dataset=eval_dataset, data_collator=data_collator)
         self.similarity_threshold = similarity_threshold
         self.update_rate = update_rate
@@ -19,6 +17,7 @@ class ErrorMinTrainer(Trainer):
         self.token_to_id = {tuple(sample["input_ids"]): arc_id for arc_id, sample in zip(train_ids, train_dataset)}
         self.tokenizer = tokenizer
         self.modified_examples = {}
+        self.replacements_per_example = replacements_per_example
 
     def get_arc_ids(self, inputs):
         arc_ids, starts = [], []
@@ -40,7 +39,6 @@ class ErrorMinTrainer(Trainer):
                         skip_special_tokens=True,
                         clean_up_tokenization_spaces=False
                     ).strip()
-                    print(self.modified_examples[arc_id])
                     
     def optimize_noise(self, model, inputs, arc_ids, starts, question_lengths):
         # Get embedding matrix
@@ -84,8 +82,10 @@ class ErrorMinTrainer(Trainer):
             # taking mod gives the column, which corresponds to the replacement embedding candidate
             replacements = sorted_indices % replacement_matrix.shape[1]
             
+            num_replaced = 0
             # Iterate through the sorted list and look for candidates that meet similarity requirement
             for position, replacement in zip(positions, replacements):
+                # Only consider modifications to the question, not choices.
                 if position >= question_length:
                     cos_sim = F.cosine_similarity(inputs_embeds[index, position], embedding_matrix[replacement], dim=0).item()
                     if cos_sim >= self.similarity_threshold and replacement_matrix[position,replacement] < 0:
@@ -93,7 +93,9 @@ class ErrorMinTrainer(Trainer):
                         self.noise[arc_ids[index]].append((position.item() - starts[index], replacement.item()))
                         #edit our batch outside of the noise optimization step (metches closer to algorithm 1)
                         #inputs["input_ids"][index, position] = replacement]
-                        break
+                        num_replaced += 1
+                        if num_replaced >= self.replacements_per_example:
+                            break
     
     # Runs every batch. If the training step mod update rate is 0
     def training_step(self, model, inputs, num_items_in_batch=None):
@@ -102,11 +104,11 @@ class ErrorMinTrainer(Trainer):
         question_lengths = inputs.pop("question_length")
         if self.state.global_step % self.update_rate == 0:
             # Test metric
-            eval_results = self.evaluate()
-            if self.eval_loss is None or eval_results['eval_loss'] > self.eval_loss:
-                self.eval_loss = eval_results['eval_loss']
-            else:
-                self.control.should_training_stop = True
+            # eval_results = self.evaluate()
+            # if self.eval_loss is None or eval_results['eval_loss'] > self.eval_loss:
+            #     self.eval_loss = eval_results['eval_loss']
+            # else:
+            #     self.control.should_training_stop = True
                 
             print("Evaluation finished")
             print("Starting noise optimization")

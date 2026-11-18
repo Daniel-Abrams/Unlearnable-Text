@@ -9,13 +9,13 @@ import gc
 
 def fineTuneWithErrorMin():
     model_id="meta-llama/Meta-Llama-3-8B"
-    batch_size=8
+    batch_size=20
     lr=2e-4
-    num_epochs=3
+    num_epochs=1
     
     # Set up LoRA mode
     print(f"Loading model {model_id}...")
-    peft_config = LoraConfig(target_modules=["q_proj"], task_type=TaskType.QUESTION_ANS, inference_mode=False, r=8, lora_alpha=32, lora_dropout=0.1)
+    peft_config = LoraConfig(target_modules=["q_proj"], task_type=TaskType.CAUSAL_LM, inference_mode=False, r=8, lora_alpha=32, lora_dropout=0.1)
     model = AutoModelForCausalLM.from_pretrained("meta-llama/Meta-Llama-3-8B")
     peft_model = get_peft_model(model, peft_config)
     
@@ -55,10 +55,11 @@ def fineTuneWithErrorMin():
         train_dataset=tokenized_train_dataset,
         eval_dataset=tokenized_eval_dataset,
         similarity_threshold=0.1,
-        update_rate=30,
+        update_rate=1,
         data_collator=data_collator,
         train_ids=train_ids,
         tokenizer=tokenizer,
+        replacements_per_example=3
     )
 
     print(f"Setup complete. Training starting...")
@@ -87,6 +88,8 @@ def fineTuneWithErrorMin():
         keep_in_memory=False
     )
     perturbed_dataset.save_to_disk("./arc_challenge_perturbed")
+    perturbed_dataset.push_to_hub("daniel-abrams/arc_challenge_perturbed")
+
     print("Done.")
 
 
