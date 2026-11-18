@@ -83,17 +83,19 @@ class ErrorMinTrainer(Trainer):
             replacements = sorted_indices % replacement_matrix.shape[1]
             
             num_replaced = 0
+            replaced_positions = set()
             # Iterate through the sorted list and look for candidates that meet similarity requirement
             for position, replacement in zip(positions, replacements):
                 # Only consider modifications to the question, not choices.
                 if position >= question_length:
                     cos_sim = F.cosine_similarity(inputs_embeds[index, position], embedding_matrix[replacement], dim=0).item()
-                    if cos_sim >= self.similarity_threshold and replacement_matrix[position,replacement] < 0:
+                    if position not in replaced_positions and cos_sim >= self.similarity_threshold and replacement_matrix[position,replacement] < 0:
                         #self.replacements.append((index,position.item(),replacement.item()))
                         self.noise[arc_ids[index]].append((position.item() - starts[index], replacement.item()))
                         #edit our batch outside of the noise optimization step (metches closer to algorithm 1)
                         #inputs["input_ids"][index, position] = replacement]
                         num_replaced += 1
+                        replaced_positions.add(position)
                         if num_replaced >= self.replacements_per_example:
                             break
     
