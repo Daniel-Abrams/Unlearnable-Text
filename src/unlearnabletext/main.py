@@ -1,5 +1,5 @@
-from unlearnabletext.fine_tuning import finetuneWithLora
-from unlearnabletext.error_min_generation import fineTuneWithErrorMin
+from fine_tuning import finetuneWithLora
+from error_min_generation import fineTuneWithErrorMin
 import sys
 
 def main() -> None:

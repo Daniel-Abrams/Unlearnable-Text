@@ -33,14 +33,34 @@ class ErrorMinTrainer(Trainer):
         s_changed = 0
         for bid, (arc_id, question_length) in enumerate(zip(arc_ids, question_lengths)):
             if arc_id in self.noise:
+                start = int(starts[bid])
+                question_length = int(question_length)
+                
+                print("Original decoded question: ")
+                print(self.tokenizer.decode(
+                    inputs["input_ids"][bid, start:start + question_length],
+                    skip_special_tokens=True,
+                    clean_up_tokenization_spaces=False
+                ))
+
                 for pos, token in self.noise.get(arc_id):
                     inputs["input_ids"][bid, pos + starts[bid]] = token
+                
+                print("Modified decoded question: ")
+                print(self.tokenizer.decode(
+                    inputs["input_ids"][bid, start:start + question_length],
+                    skip_special_tokens=True,
+                    clean_up_tokenization_spaces=False
+                ))
+
+                    
                 self.modified_examples[arc_id] = self.tokenizer.decode(
-                    inputs["input_ids"][bid][:question_length],
+                    inputs["input_ids"][bid, start:start + question_length],
                     skip_special_tokens=True,
                     clean_up_tokenization_spaces=False
                 ).strip()
                 s_changed += 1
+                
         print(f"Samples modified: {s_changed}")
                 
                     
@@ -91,7 +111,7 @@ class ErrorMinTrainer(Trainer):
             # Iterate through the sorted list and look for candidates that meet similarity requirement
             for position, replacement in zip(positions, replacements):
                 # Only consider modifications to the question, not choices.
-                if position >= question_length:
+                if position >= starts[index] and position < starts[index] + question_length:
                     cos_sim = F.cosine_similarity(inputs_embeds[index, position], embedding_matrix[replacement], dim=0).item()
                     if position not in replaced_positions and cos_sim >= self.similarity_threshold and replacement_matrix[position,replacement] < 0:
                         #self.replacements.append((index,position.item(),replacement.item()))
