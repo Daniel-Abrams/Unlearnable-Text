@@ -9,7 +9,7 @@ import gc
 
 def fineTuneWithErrorMin():
     model_id="meta-llama/Meta-Llama-3-8B"
-    batch_size=15
+    batch_size=8
     lr=2e-4
     num_epochs=1
     
@@ -54,12 +54,12 @@ def fineTuneWithErrorMin():
         args=training_args,
         train_dataset=tokenized_train_dataset,
         eval_dataset=tokenized_eval_dataset,
-        similarity_threshold=0.5,
+        similarity_threshold=0.9,
         update_rate=1,
         data_collator=data_collator,
         train_ids=train_ids,
         tokenizer=tokenizer,
-        replacements_per_example=3
+        replacements_per_example=1
     )
 
     print(f"Setup complete. Training starting...")

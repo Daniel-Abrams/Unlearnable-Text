@@ -95,11 +95,14 @@ class ErrorMinTrainer(Trainer):
         # Compute and apply the noise for each item in the batch
         for index, (sample,question_length) in enumerate(zip(input_grads,question_lengths)):
             # First order approximation for token substitutions that minimize error.
-            replacement_matrix = sample @ embedding_matrix.T
+            replacement_matrix = input_grads[index] @ embedding_matrix.T
+            original_scores = (input_grads[index] * inputs_embeds[index]).sum(dim=-1, keepdim=True)
+            replacement_matrix = replacement_matrix - original_scores
+            
             flat_scores = replacement_matrix.flatten()
             top_values, sorted_indices = torch.topk(
                 flat_scores,
-                k=100000,
+                k=50000,
                 largest=False
             )
             
@@ -129,8 +132,8 @@ class ErrorMinTrainer(Trainer):
                             skip_special_tokens=True,
                             clean_up_tokenization_spaces=False
                         )
-                        print(f"original: {original}")
-                        print(f"modified: {modified_sentence}")
+                        # print(f"original: {original}")
+                        # print(f"modified: {modified_sentence}")
                         
                         emb1 = self.similarity_model.encode(original)
                         emb2 = self.similarity_model.encode(modified_sentence)
