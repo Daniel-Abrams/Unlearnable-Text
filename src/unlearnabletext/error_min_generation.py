@@ -1,15 +1,15 @@
 from transformers import AutoModelForCausalLM, TrainingArguments, DataCollatorForSeq2Seq, AutoTokenizer
 from peft import LoraConfig, TaskType, get_peft_model
 from datasets import load_dataset
-from unlearnabletext.ErrorMinTrainer import ErrorMinTrainer
-from unlearnabletext.fine_tuning import format_example, tokenize
+from ErrorMinTrainer import ErrorMinTrainer
+from fine_tuning import format_example, tokenize
 import copy
 import torch
 import gc
 
 def fineTuneWithErrorMin():
     model_id="meta-llama/Meta-Llama-3-8B"
-    batch_size=20
+    batch_size=8
     lr=2e-4
     num_epochs=1
     
@@ -54,12 +54,12 @@ def fineTuneWithErrorMin():
         args=training_args,
         train_dataset=tokenized_train_dataset,
         eval_dataset=tokenized_eval_dataset,
-        similarity_threshold=0.1,
+        similarity_threshold=0.9,
         update_rate=1,
         data_collator=data_collator,
         train_ids=train_ids,
         tokenizer=tokenizer,
-        replacements_per_example=3
+        replacements_per_example=1
     )
 
     print(f"Setup complete. Training starting...")
@@ -69,11 +69,6 @@ def fineTuneWithErrorMin():
 
     peft_model.save_pretrained("./arc_challenge_error_min_model")
     tokenizer.save_pretrained("./arc_challenge_errir_min_model")
-    
-    del error_min_trainer.optimizer
-    del error_min_trainer.lr_scheduler
-    gc.collect()
-    torch.cuda.empty_cache()
     
     print(f"Saving perturbations...")
     modified_examples = error_min_trainer.modified_examples

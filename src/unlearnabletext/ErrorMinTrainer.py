@@ -3,6 +3,7 @@ import torch.nn.functional as F
 import torch
 import numpy as np
 from collections import defaultdict
+from sentence_transformers import SentenceTransformer
 
 # Class for generating error-minimizing perturbations
 class ErrorMinTrainer(Trainer):
@@ -18,6 +19,7 @@ class ErrorMinTrainer(Trainer):
         self.tokenizer = tokenizer
         self.modified_examples = {}
         self.replacements_per_example = replacements_per_example
+        self.similarity_model = SentenceTransformer("Qwen/Qwen3-Embedding-0.6B")
 
     def get_arc_ids(self, inputs):
         arc_ids, starts = [], []
@@ -33,14 +35,34 @@ class ErrorMinTrainer(Trainer):
         s_changed = 0
         for bid, (arc_id, question_length) in enumerate(zip(arc_ids, question_lengths)):
             if arc_id in self.noise:
+                start = int(starts[bid])
+                question_length = int(question_length)
+                
+                # print("Original decoded question: ")
+                # print(self.tokenizer.decode(
+                #     inputs["input_ids"][bid, start:start + question_length],
+                #     skip_special_tokens=True,
+                #     clean_up_tokenization_spaces=False
+                # ))
+
                 for pos, token in self.noise.get(arc_id):
                     inputs["input_ids"][bid, pos + starts[bid]] = token
+                
+                # print("Modified decoded question: ")
+                # print(self.tokenizer.decode(
+                #     inputs["input_ids"][bid, start:start + question_length],
+                #     skip_special_tokens=True,
+                #     clean_up_tokenization_spaces=False
+                # ))
+
+                    
                 self.modified_examples[arc_id] = self.tokenizer.decode(
-                    inputs["input_ids"][bid][:question_length],
+                    inputs["input_ids"][bid, start:start + question_length],
                     skip_special_tokens=True,
                     clean_up_tokenization_spaces=False
                 ).strip()
                 s_changed += 1
+                
         print(f"Samples modified: {s_changed}")
                 
                     
@@ -73,11 +95,14 @@ class ErrorMinTrainer(Trainer):
         # Compute and apply the noise for each item in the batch
         for index, (sample,question_length) in enumerate(zip(input_grads,question_lengths)):
             # First order approximation for token substitutions that minimize error.
-            replacement_matrix = sample @ embedding_matrix.T
+            replacement_matrix = input_grads[index] @ embedding_matrix.T
+            original_scores = (input_grads[index] * inputs_embeds[index]).sum(dim=-1, keepdim=True)
+            replacement_matrix = replacement_matrix - original_scores
+            
             flat_scores = replacement_matrix.flatten()
             top_values, sorted_indices = torch.topk(
                 flat_scores,
-                k=100000,
+                k=50000,
                 largest=False
             )
             
@@ -91,17 +116,37 @@ class ErrorMinTrainer(Trainer):
             # Iterate through the sorted list and look for candidates that meet similarity requirement
             for position, replacement in zip(positions, replacements):
                 # Only consider modifications to the question, not choices.
-                if position >= question_length:
-                    cos_sim = F.cosine_similarity(inputs_embeds[index, position], embedding_matrix[replacement], dim=0).item()
-                    if position not in replaced_positions and cos_sim >= self.similarity_threshold and replacement_matrix[position,replacement] < 0:
-                        #self.replacements.append((index,position.item(),replacement.item()))
-                        self.noise[arc_ids[index]].append((position.item() - starts[index], replacement.item()))
-                        #edit our batch outside of the noise optimization step (metches closer to algorithm 1)
-                        #inputs["input_ids"][index, position] = replacement]
-                        num_replaced += 1
-                        replaced_positions.add(position)
-                        if num_replaced >= self.replacements_per_example:
-                            break
+                start = starts[index]
+                if position >= start and position < start + question_length:
+                    if position not in replaced_positions and replacement_matrix[position,replacement] < 0:
+                        original = self.tokenizer.decode(
+                            inputs["input_ids"][index, start:start + question_length],
+                            skip_special_tokens=True,
+                            clean_up_tokenization_spaces=False
+                        )
+                        
+                        mod = inputs["input_ids"][index].detach().clone()
+                        mod[position + start] = replacement
+                        modified_sentence = self.tokenizer.decode(
+                            mod[start:start + question_length],
+                            skip_special_tokens=True,
+                            clean_up_tokenization_spaces=False
+                        )
+                        # print(f"original: {original}")
+                        # print(f"modified: {modified_sentence}")
+                        
+                        emb1 = self.similarity_model.encode(original)
+                        emb2 = self.similarity_model.encode(modified_sentence)
+                        score = self.similarity_model.similarity(emb1, emb2) 
+                        
+                        if score >= self.similarity_threshold:
+                            self.noise[arc_ids[index]].append((position.item() - starts[index], replacement.item()))
+                            #edit our batch outside of the noise optimization step (metches closer to algorithm 1)
+                            #inputs["input_ids"][index, position] = replacement]
+                            num_replaced += 1
+                            replaced_positions.add(position)
+                            if num_replaced >= self.replacements_per_example:
+                                break
     
     # Runs every batch. If the training step mod update rate is 0
     def training_step(self, model, inputs, num_items_in_batch=None):
