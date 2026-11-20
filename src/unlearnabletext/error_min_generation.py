@@ -3,6 +3,8 @@ from peft import LoraConfig, TaskType, get_peft_model
 from datasets import load_dataset
 from ErrorMinTrainer import ErrorMinTrainer
 from fine_tuning import format_example, tokenize
+from sklearn.metrics import accuracy_score
+
 import copy
 import torch
 import gc
@@ -41,12 +43,41 @@ def fineTuneWithErrorMin():
     output_dir="./lora_error_min_output",
     per_device_train_batch_size=batch_size,
     learning_rate=lr,
+    gradient_accumulation_steps=1,
     remove_unused_columns=False,
     logging_steps=10,    
     num_train_epochs=num_epochs,
     save_strategy="epoch",
     fp16=True,
     )
+    
+    def preprocess_logits_for_metrics(logits, labels):
+        if isinstance(logits, tuple):
+            logits = logits[0]
+
+        return logits.argmax(dim=-1)
+    
+    def compute_metrics(eval_pred):
+        predictions, labels = eval_pred
+        # Ignore masked prompt and padding tokens
+        # Align predictions with the next-token labels
+        
+
+    
+        # Shift so that predictions[i] aligns with labels[i + 1]
+        predictions = predictions[:, :-1]
+        labels = labels[:, 1:]
+        mask = labels != -100
+
+        predictions = predictions[mask]
+        labels = labels[mask]
+        print("Predictions shape:", predictions.shape)
+        print("Labels shape:", labels.shape)
+        accuracy = accuracy_score(labels, predictions)
+
+        return {
+            "token_accuracy": accuracy,
+        }
 
     # Train the model with error minimzing trainer
     error_min_trainer = ErrorMinTrainer(
@@ -55,10 +86,12 @@ def fineTuneWithErrorMin():
         train_dataset=tokenized_train_dataset,
         eval_dataset=tokenized_eval_dataset,
         similarity_threshold=0.9,
-        update_rate=1,
+        update_rate=30,
         data_collator=data_collator,
         train_ids=train_ids,
         tokenizer=tokenizer,
+        compute_metrics=compute_metrics,
+        preprocess_logits_for_metrics=preprocess_logits_for_metrics,
         replacements_per_example=1
     )
 

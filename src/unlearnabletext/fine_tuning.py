@@ -48,8 +48,7 @@ def tokenize(example, tokenizer: AutoTokenizer):
     }
 
 
-def finetuneWithLora():
-    model_id="meta-llama/Meta-Llama-3-8B"
+def finetuneWithLora(model_id="meta-llama/Meta-Llama-3-8B", dataset="allenai/ai2_arc"):
     batch_size=4
     lr=2e-4
     num_epochs=3
@@ -57,12 +56,15 @@ def finetuneWithLora():
     # Set up LoRA mode
     print(f"Loading model {model_id}...")
     peft_config = LoraConfig(target_modules=["q_proj"], task_type=TaskType.CAUSAL_LM, inference_mode=False, r=8, lora_alpha=32, lora_dropout=0.1)
-    model = AutoModelForCausalLM.from_pretrained("meta-llama/Meta-Llama-3-8B")
+    model = AutoModelForCausalLM.from_pretrained(model_id)
     peft_model = get_peft_model(model, peft_config)
     
     # get ARC challenge dataset, set up tokenizer and tokenize dataset
-    print(f"Loading ARC Challenge training data")
-    arc_challenge_train_dataset = load_dataset("allenai/ai2_arc", "ARC-Challenge", split="train")
+    print(f"Loading training data")
+    if dataset == "allenai/ai2_arc":
+        arc_challenge_train_dataset = load_dataset("allenai/ai2_arc", "ARC-Challenge", split="train")
+    elif dataset == "daniel-abrams/arc_challenge_perturbed":
+        arc_challenge_train_dataset = load_dataset("daniel-abrams/arc_challenge_perturbed", split="train")
     fomatted_dataset = arc_challenge_train_dataset.map(format_example)
     tokenizer = AutoTokenizer.from_pretrained(model_id)
     tokenizer.pad_token = tokenizer.eos_token
@@ -71,7 +73,7 @@ def finetuneWithLora():
     
     print("Setting up trainer...")
     training_args = TrainingArguments(
-    remove_unused_columns=False,
+    remove_unused_columns=True,
     output_dir="./lora_output",
     per_device_train_batch_size=batch_size,
     gradient_accumulation_steps=4,
@@ -94,8 +96,8 @@ def finetuneWithLora():
     print(f"Training Complete, saving model and tokenizer...")
 
     # Save
-    peft_model.save_pretrained("./arc_challenge_lora_adapter")
-    tokenizer.save_pretrained("./arc_challenge_lora_adapter")
+    peft_model.save_pretrained(f"./{model_id.replace("/","")}_{dataset.replace("/","")}_lora_adapter")
+    tokenizer.save_pretrained(f"./{model_id.replace("/","")}_{dataset.replace("/","")}_lora_adapter")
     print("Done.")
 
 

@@ -4,14 +4,25 @@ import torch
 import numpy as np
 from collections import defaultdict
 from sentence_transformers import SentenceTransformer
+from torch.utils.data import DataLoader
 
 # Class for generating error-minimizing perturbations
 class ErrorMinTrainer(Trainer):
-    #replacements = []
-    eval_loss = None
-    
-    def __init__(self, model, args, train_dataset, eval_dataset, data_collator, similarity_threshold, update_rate, train_ids, tokenizer: AutoTokenizer, replacements_per_example=1):
-        super().__init__(model=model, args=args, train_dataset=train_dataset, eval_dataset=eval_dataset, data_collator=data_collator)
+    def __init__(self, 
+                 model, 
+                 args, 
+                 train_dataset, 
+                 eval_dataset, 
+                 data_collator, 
+                 similarity_threshold, 
+                 update_rate, train_ids, 
+                 tokenizer: AutoTokenizer, 
+                 compute_metrics,
+                 preprocess_logits_for_metrics,
+                 replacements_per_example=1,
+                ):
+        
+        super().__init__(model=model, args=args, train_dataset=train_dataset, eval_dataset=eval_dataset, data_collator=data_collator, compute_metrics=compute_metrics, preprocess_logits_for_metrics=preprocess_logits_for_metrics)
         self.similarity_threshold = similarity_threshold
         self.update_rate = update_rate
         self.noise = defaultdict(list)
@@ -20,6 +31,15 @@ class ErrorMinTrainer(Trainer):
         self.modified_examples = {}
         self.replacements_per_example = replacements_per_example
         self.similarity_model = SentenceTransformer("Qwen/Qwen3-Embedding-0.6B")
+        
+        self.noise_dataloader = DataLoader(
+                                train_dataset,
+                                batch_size=8,
+                                shuffle=False,
+                                collate_fn=data_collator
+                            )
+        self.eval_token_accuracy = None
+
 
     def get_arc_ids(self, inputs):
         arc_ids, starts = [], []
@@ -38,23 +58,8 @@ class ErrorMinTrainer(Trainer):
                 start = int(starts[bid])
                 question_length = int(question_length)
                 
-                # print("Original decoded question: ")
-                # print(self.tokenizer.decode(
-                #     inputs["input_ids"][bid, start:start + question_length],
-                #     skip_special_tokens=True,
-                #     clean_up_tokenization_spaces=False
-                # ))
-
                 for pos, token in self.noise.get(arc_id):
                     inputs["input_ids"][bid, pos + starts[bid]] = token
-                
-                # print("Modified decoded question: ")
-                # print(self.tokenizer.decode(
-                #     inputs["input_ids"][bid, start:start + question_length],
-                #     skip_special_tokens=True,
-                #     clean_up_tokenization_spaces=False
-                # ))
-
                     
                 self.modified_examples[arc_id] = self.tokenizer.decode(
                     inputs["input_ids"][bid, start:start + question_length],
@@ -96,8 +101,8 @@ class ErrorMinTrainer(Trainer):
         for index, (sample,question_length) in enumerate(zip(input_grads,question_lengths)):
             # First order approximation for token substitutions that minimize error.
             replacement_matrix = input_grads[index] @ embedding_matrix.T
-            original_scores = (input_grads[index] * inputs_embeds[index]).sum(dim=-1, keepdim=True)
-            replacement_matrix = replacement_matrix - original_scores
+            # original_scores = (input_grads[index] * inputs_embeds[index]).sum(dim=-1, keepdim=True)
+            # replacement_matrix = replacement_matrix - original_scores
             
             flat_scores = replacement_matrix.flatten()
             top_values, sorted_indices = torch.topk(
@@ -151,22 +156,33 @@ class ErrorMinTrainer(Trainer):
     # Runs every batch. If the training step mod update rate is 0
     def training_step(self, model, inputs, num_items_in_batch=None):
         
-        arc_ids, starts = self.get_arc_ids(inputs)
-        question_lengths = inputs.pop("question_length")
+        # Get info about the current batch
+        current_arc_ids, current_starts = self.get_arc_ids(inputs)
+        current_question_lengths = inputs.pop("question_length")
         if self.state.global_step % self.update_rate == 0:
             # Test metric
-            # eval_results = self.evaluate()
-            # if self.eval_loss is None or eval_results['eval_loss'] > self.eval_loss:
-            #     self.eval_loss = eval_results['eval_loss']
-            # else:
-            #     self.control.should_training_stop = True
+            eval_results = self.evaluate()
+            if self.eval_token_accuracy is None or eval_results['eval_token_accuracy'] < self.eval_token_accuracy:
+                self.eval_token_accuracy = eval_results['eval_token_accuracy']
+            else:
+                self.control.should_training_stop = True
                 
             print("Evaluation finished")
             print("Starting noise optimization")
-            self.optimize_noise(model=model, inputs=inputs, arc_ids=arc_ids, starts=starts, question_lengths=question_lengths)
+            # Generated optimized noise for every batch
+            for batch in self.noise_dataloader:
+                device = next(model.parameters()).device
+                batch = {
+                    key: value.to(device) if isinstance(value, torch.Tensor) else value
+                    for key, value in batch.items()
+                }
+
+                arc_ids, starts = self.get_arc_ids(batch)
+                question_lengths = batch.pop("question_length")
+                self.optimize_noise(model=model, inputs=batch, arc_ids=arc_ids, starts=starts, question_lengths=question_lengths)
             print("Noise optimization finished")
 
-        self.apply_noise(inputs, arc_ids, starts, question_lengths)
+        self.apply_noise(inputs, current_arc_ids, current_starts, current_question_lengths)
                     
         # Complete normal training, updating grad accumulation
         return super().training_step(model, inputs, num_items_in_batch)
