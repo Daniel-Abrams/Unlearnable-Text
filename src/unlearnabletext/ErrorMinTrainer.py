@@ -52,23 +52,31 @@ class ErrorMinTrainer(Trainer):
         return arc_ids, starts
 
     def apply_noise(self, inputs, arc_ids, starts, question_lengths):
+        modified_inputs = {
+            key: value.clone() if isinstance(value, torch.Tensor) else value
+            for key, value in inputs.items()
+        }
+
         s_changed = 0
         for bid, (arc_id, question_length) in enumerate(zip(arc_ids, question_lengths)):
             if arc_id in self.noise:
                 start = int(starts[bid])
                 question_length = int(question_length)
-                
-                for pos, token in self.noise.get(arc_id):
-                    inputs["input_ids"][bid, pos + starts[bid]] = token
-                    
+
+                for pos, token in self.noise[arc_id]:
+                    modified_inputs["input_ids"][bid, pos + start] = token
+
                 self.modified_examples[arc_id] = self.tokenizer.decode(
-                    inputs["input_ids"][bid, start:start + question_length],
+                    modified_inputs["input_ids"][bid, start:start + question_length],
                     skip_special_tokens=True,
                     clean_up_tokenization_spaces=False
                 ).strip()
+
                 s_changed += 1
-                
+
         print(f"Samples modified: {s_changed}")
+
+        return modified_inputs
                 
                     
     def optimize_noise(self, model, inputs, arc_ids, starts, question_lengths):
@@ -104,6 +112,7 @@ class ErrorMinTrainer(Trainer):
             # original_scores = (input_grads[index] * inputs_embeds[index]).sum(dim=-1, keepdim=True)
             # replacement_matrix = replacement_matrix - original_scores
             
+            # Only check first 50000 for computational efficiency
             flat_scores = replacement_matrix.flatten()
             top_values, sorted_indices = torch.topk(
                 flat_scores,
@@ -159,9 +168,13 @@ class ErrorMinTrainer(Trainer):
         # Get info about the current batch
         current_arc_ids, current_starts = self.get_arc_ids(inputs)
         current_question_lengths = inputs.pop("question_length")
+        
+        # Every M steps we take a metric, decide whether to stop or keep optimizing noise.
         if self.state.global_step % self.update_rate == 0:
+            
             # Test metric
             eval_results = self.evaluate()
+            # If the model performed worse than last time, keep going
             if self.eval_token_accuracy is None or eval_results['eval_token_accuracy'] < self.eval_token_accuracy:
                 self.eval_token_accuracy = eval_results['eval_token_accuracy']
             else:
@@ -171,18 +184,22 @@ class ErrorMinTrainer(Trainer):
             print("Starting noise optimization")
             # Generated optimized noise for every batch
             for batch in self.noise_dataloader:
+                
+                # Need to move the batch inside the device
                 device = next(model.parameters()).device
                 batch = {
                     key: value.to(device) if isinstance(value, torch.Tensor) else value
                     for key, value in batch.items()
                 }
 
+                # Get IDs and starts for the batch
                 arc_ids, starts = self.get_arc_ids(batch)
                 question_lengths = batch.pop("question_length")
+                #
                 self.optimize_noise(model=model, inputs=batch, arc_ids=arc_ids, starts=starts, question_lengths=question_lengths)
             print("Noise optimization finished")
 
-        self.apply_noise(inputs, current_arc_ids, current_starts, current_question_lengths)
-                    
+        # Apply the current noise (positions, replacements) to the batch
+        modified_batch = self.apply_noise(inputs, current_arc_ids, current_starts, current_question_lengths)
         # Complete normal training, updating grad accumulation
-        return super().training_step(model, inputs, num_items_in_batch)
+        return super().training_step(model, modified_batch, num_items_in_batch)
