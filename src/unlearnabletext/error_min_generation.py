@@ -61,8 +61,6 @@ def fineTuneWithErrorMin():
         predictions, labels = eval_pred
         # Ignore masked prompt and padding tokens
         # Align predictions with the next-token labels
-        
-
     
         # Shift so that predictions[i] aligns with labels[i + 1]
         predictions = predictions[:, :-1]
@@ -92,7 +90,6 @@ def fineTuneWithErrorMin():
         tokenizer=tokenizer,
         compute_metrics=compute_metrics,
         preprocess_logits_for_metrics=preprocess_logits_for_metrics,
-        replacements_per_example=1
     )
 
     print(f"Setup complete. Training starting...")
@@ -104,6 +101,7 @@ def fineTuneWithErrorMin():
     tokenizer.save_pretrained("./arc_challenge_errir_min_model")
     
     print(f"Saving perturbations...")
+    error_min_trainer.apply_all_noise()
     modified_examples = error_min_trainer.modified_examples
     def update_row(example):
         if example["id"] in modified_examples:
