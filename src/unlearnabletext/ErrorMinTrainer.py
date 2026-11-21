@@ -19,6 +19,7 @@ class ErrorMinTrainer(Trainer):
                  tokenizer: AutoTokenizer, 
                  compute_metrics,
                  preprocess_logits_for_metrics,
+                 patience=0.03
                 ):
         
         super().__init__(model=model, args=args, train_dataset=train_dataset, eval_dataset=eval_dataset, data_collator=data_collator, compute_metrics=compute_metrics, preprocess_logits_for_metrics=preprocess_logits_for_metrics)
@@ -29,6 +30,7 @@ class ErrorMinTrainer(Trainer):
         self.tokenizer = tokenizer
         self.modified_examples = {}
         self.similarity_model = SentenceTransformer("Qwen/Qwen3-Embedding-0.6B")
+        self.patience=patience
         
         self.noise_dataloader = DataLoader(
                                 train_dataset,
@@ -176,19 +178,26 @@ class ErrorMinTrainer(Trainer):
         
         # Every M steps we take a metric, decide whether to stop or keep optimizing noise.
         if self.state.global_step % self.update_rate == 0:
-            
             # Test metric
             eval_results = self.evaluate()
             # If the model performed worse than last time, keep going
-            if self.eval_token_accuracy is None or eval_results['eval_token_accuracy'] < self.eval_token_accuracy:
-                self.eval_token_accuracy = eval_results['eval_token_accuracy']
+            if self.eval_token_accuracy is None or eval_results['eval_token_accuracy'] < self.eval_token_accuracy + self.patience:
+                if self.eval_token_accuracy:
+                    self.eval_token_accuracy = min(eval_results['eval_token_accuracy'], self.eval_token_accuracy)
+                else:
+                    self.eval_token_accuracy = eval_results['eval_token_accuracy']
             else:
                 self.control.should_training_stop = True
                 
             print("Evaluation finished")
             print("Starting noise optimization")
-            # Generated optimized noise for every batch
+            # Generate noise for current batch, more efficient
             if not self.control.should_training_stop:
+                self.optimize_noise(model=model, inputs=inputs, arc_ids=current_arc_ids, starts=current_starts, question_lengths=current_question_lengths)
+                print("Noise optimization finished")
+            
+            # Otherwise generate noise for the entire dataset
+            else:
                 for batch in self.noise_dataloader:
                     # Get IDs and starts for the batch
                     arc_ids, starts = self.get_arc_ids(batch)
@@ -199,11 +208,8 @@ class ErrorMinTrainer(Trainer):
                         key: value.to(device) if isinstance(value, torch.Tensor) else value
                         for key, value in batch.items()
                     }
-
-
                     # Optimize noise
                     self.optimize_noise(model=model, inputs=batch, arc_ids=arc_ids, starts=starts, question_lengths=question_lengths)
-                print("Noise optimization finished")
 
         # Apply the current noise (positions, replacements) to the batch
         modified_batch = self.apply_noise(inputs, current_arc_ids, current_starts, current_question_lengths)
