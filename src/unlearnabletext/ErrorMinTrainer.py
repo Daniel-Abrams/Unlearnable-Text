@@ -120,7 +120,7 @@ class ErrorMinTrainer(Trainer):
             flat_scores = replacement_matrix.flatten()
             top_values, sorted_indices = torch.topk(
                 flat_scores,
-                k=50000,
+                k=1000,
                 largest=False
             )
             
@@ -130,14 +130,15 @@ class ErrorMinTrainer(Trainer):
             replacements = sorted_indices % replacement_matrix.shape[1]
             
             # Iterate through the sorted list and look for candidates that meet similarity requirement
-            for position, replacement in zip(positions, replacements):
+            did_find = False
+            for i,(position, replacement) in enumerate(zip(positions, replacements)):
                 
                 # Accounts for start token removal
                 position += 1
 
                 # Only consider modifications to the question, not choices.
-                if inputs["input_ids"][index][position] not in self.okenizer.all_special_ids:
-                    original = self.tokenizer.decode(t
+                if inputs["input_ids"][index][position] not in self.tokenizer.all_special_ids:
+                    original = self.tokenizer.decode(
                         inputs["input_ids"][index, start:start + question_length],
                         skip_special_tokens=True,
                         clean_up_tokenization_spaces=False
@@ -158,10 +159,14 @@ class ErrorMinTrainer(Trainer):
                     score = self.similarity_model.similarity(emb1, emb2) 
                     
                     if score >= self.similarity_threshold:
+                        did_find = True
+                        print(f"found replacement at: {i}")
                         self.noise[arc_ids[index]] = (position.item() - starts[index], replacement.item())
                         #edit our batch outside of the noise optimization step (metches closer to algorithm 1)
                         #inputs["input_ids"][index, position] = replacement]
                         break
+            if not did_find:
+                print("Did not find replacement after 1000")
     
     def apply_all_noise(self):
         for batch in self.noise_dataloader:
