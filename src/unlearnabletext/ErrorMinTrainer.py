@@ -14,7 +14,8 @@ class ErrorMinTrainer(Trainer):
                  train_dataset, 
                  eval_dataset, 
                  data_collator, 
-                 similarity_threshold, 
+                 sbert_similarity_threshold,
+                 cos_similarity_threshold, 
                  update_rate, train_ids, 
                  tokenizer: AutoTokenizer, 
                  compute_metrics,
@@ -23,7 +24,8 @@ class ErrorMinTrainer(Trainer):
                 ):
         
         super().__init__(model=model, args=args, train_dataset=train_dataset, eval_dataset=eval_dataset, data_collator=data_collator, compute_metrics=compute_metrics, preprocess_logits_for_metrics=preprocess_logits_for_metrics)
-        self.similarity_threshold = similarity_threshold
+        self.sbert_similarity_threshold = sbert_similarity_threshold
+        self.cos_similarity_threshold = cos_similarity_threshold
         self.update_rate = update_rate
         self.noise = {}
         self.token_to_id = {tuple(sample["input_ids"]): arc_id for arc_id, sample in zip(train_ids, train_dataset)}
@@ -116,11 +118,11 @@ class ErrorMinTrainer(Trainer):
             
             # Only include question in replacement matrix
             replacement_matrix = replacement_matrix[start+1:start + question_length]
-            # Only check first 50000 for computational efficiency
+            # Only check first 10000 for computational efficiency
             flat_scores = replacement_matrix.flatten()
             top_values, sorted_indices = torch.topk(
                 flat_scores,
-                k=20,
+                k=50000,
                 largest=False
             )
             
@@ -133,10 +135,12 @@ class ErrorMinTrainer(Trainer):
             did_find = False
             for position, replacement in  zip(positions, replacements):
                 # Accounts for start token removal
-                position += 1
-
+                absolute_position = sliced_position.item() + start + 1
+                replacement_id = replacement.item()
+                
+                cos_sim = F.cosine_similarity(inputs_embeds[index, absolute_position], embedding_matrix[replacement_id], dim=0).item()
                 # Only consider modifications to the question, not choices.
-                if inputs["input_ids"][index][position] not in self.tokenizer.all_special_ids:
+                if inputs["input_ids"][index][absolute_position] not in self.tokenizer.all_special_ids and cos_sim >= self.cos_similarity_threshold:
                     original = self.tokenizer.decode(
                         inputs["input_ids"][index, start:start + question_length],
                         skip_special_tokens=True,
@@ -144,7 +148,7 @@ class ErrorMinTrainer(Trainer):
                     )
                     
                     mod = inputs["input_ids"][index].detach().clone()
-                    mod[position] = replacement
+                    mod[absolute_position] = replacement_id
                     modified_sentence = self.tokenizer.decode(
                         mod[start:start + question_length],
                         skip_special_tokens=True,
@@ -155,10 +159,10 @@ class ErrorMinTrainer(Trainer):
                     emb2 = self.similarity_model.encode(modified_sentence)
                     score = self.similarity_model.similarity(emb1, emb2) 
                     
-                    if score >= self.similarity_threshold:
+                    if score >= self.sbert_similarity_threshold:
                         did_find = True
-                        self.noise[arc_ids[index]] = (position.item() - starts[index], replacement.item())
-                        self.delta_loss = np.append(self.delta_loss, replacement_matrix[position-1, replacement].item())
+                        self.noise[arc_ids[index]] = (absolute_position - starts[index], replacement.item())
+                        self.delta_loss = np.append(self.delta_loss, replacement_matrix[position, replacement].item())
                         break
                     
             if not did_find:

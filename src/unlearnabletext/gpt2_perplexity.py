@@ -3,14 +3,15 @@ import torch
 from transformers import GPT2LMHeadModel, GPT2TokenizerFast
 from fine_tuning import format_example
 from datasets import load_dataset
+import json
 import numpy as np
 
 def calculate_GPT2_perplexity(dataset):
     
     if dataset == "allenai/ai2_arc":
         arc_challenge_train_dataset = load_dataset("allenai/ai2_arc", "ARC-Challenge", split="train")
-    elif dataset == "daniel-abrams/arc_challenge_perturbed":
-        arc_challenge_train_dataset = load_dataset("daniel-abrams/arc_challenge_perturbed", split="train")
+    elif dataset == "daniel-abrams/arc_challenge_perturbed" or dataset == "daniel-abrams/arc_challenge_random_edits":
+        arc_challenge_train_dataset = load_dataset(dataset, split="train")
     
     formatted_dataset = arc_challenge_train_dataset.map(format_example)
     device = "cuda"
@@ -32,4 +33,6 @@ def calculate_GPT2_perplexity(dataset):
             perplexity = calculate_perplexity(f"{example['prompt']}\n{example['completion']}")
             perplexities = np.append(perplexities, perplexity.item())
         
+        with open(f"GPT2_Perplexity_{dataset.replace("/","")}.json", "w") as f:
+            json.dump(f"Mean GPT2 perplexity for dataset {dataset}: {np.mean(perplexities)}", f)
         print(f"Mean GPT2 perplexity for dataset {dataset}: {np.mean(perplexities)}")

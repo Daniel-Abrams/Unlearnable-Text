@@ -5,6 +5,7 @@ from ErrorMinTrainer import ErrorMinTrainer
 from fine_tuning import format_example, tokenize
 from sklearn.metrics import accuracy_score
 
+import json
 import numpy as np
 
 import copy
@@ -47,7 +48,7 @@ def fineTuneWithErrorMin():
     learning_rate=lr,
     gradient_accumulation_steps=1,
     remove_unused_columns=False,
-    logging_steps=10,    
+    logging_steps=5,    
     num_train_epochs=num_epochs,
     save_strategy="epoch",
     fp16=True,
@@ -85,7 +86,8 @@ def fineTuneWithErrorMin():
         args=training_args,
         train_dataset=tokenized_train_dataset,
         eval_dataset=tokenized_eval_dataset,
-        similarity_threshold=0.9,
+        sbert_similarity_threshold=0.9,
+        cos_similarity_threshold=0.5,
         update_rate=60,
         data_collator=data_collator,
         train_ids=train_ids,
@@ -119,6 +121,8 @@ def fineTuneWithErrorMin():
     perturbed_dataset.save_to_disk("./arc_challenge_perturbed")
     perturbed_dataset.push_to_hub("daniel-abrams/arc_challenge_perturbed")
 
+    with open("error_min_trainer_log_history.json", "w") as f:
+        json.dump(error_min_trainer.state.log_history, f, indent=2)
     print("Done.")
 
 
