@@ -5,6 +5,8 @@ from ErrorMinTrainer import ErrorMinTrainer
 from fine_tuning import format_example, tokenize
 from sklearn.metrics import accuracy_score
 
+import numpy as np
+
 import copy
 import torch
 import gc
@@ -84,7 +86,7 @@ def fineTuneWithErrorMin():
         train_dataset=tokenized_train_dataset,
         eval_dataset=tokenized_eval_dataset,
         similarity_threshold=0.9,
-        update_rate=30,
+        update_rate=60,
         data_collator=data_collator,
         train_ids=train_ids,
         tokenizer=tokenizer,
@@ -96,6 +98,7 @@ def fineTuneWithErrorMin():
     error_min_trainer.train()
     print(f"Training Complete, saving model and tokenizer...")
     
+    printf(f"Mean change in loss for all replaced tokens: {np.mean(error_min_trainer.delta_loss)}")
 
     peft_model.save_pretrained("./arc_challenge_error_min_model")
     tokenizer.save_pretrained("./arc_challenge_errir_min_model")

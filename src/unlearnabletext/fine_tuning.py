@@ -78,7 +78,7 @@ def finetuneWithLora(model_id="meta-llama/Meta-Llama-3-8B", dataset="allenai/ai2
     per_device_train_batch_size=batch_size,
     gradient_accumulation_steps=4,
     learning_rate=lr,
-    logging_steps=10,
+    logging_steps=5,
     num_train_epochs=num_epochs,
     save_strategy="epoch",
     fp16=True,

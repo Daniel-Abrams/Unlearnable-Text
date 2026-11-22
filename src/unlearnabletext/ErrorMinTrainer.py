@@ -19,7 +19,7 @@ class ErrorMinTrainer(Trainer):
                  tokenizer: AutoTokenizer, 
                  compute_metrics,
                  preprocess_logits_for_metrics,
-                 patience=0.03
+                 patience=0.00
                 ):
         
         super().__init__(model=model, args=args, train_dataset=train_dataset, eval_dataset=eval_dataset, data_collator=data_collator, compute_metrics=compute_metrics, preprocess_logits_for_metrics=preprocess_logits_for_metrics)
@@ -31,6 +31,7 @@ class ErrorMinTrainer(Trainer):
         self.modified_examples = {}
         self.similarity_model = SentenceTransformer("Qwen/Qwen3-Embedding-0.6B")
         self.patience=patience
+        self.delta_loss = np.array([])
         
         self.noise_dataloader = DataLoader(
                                 train_dataset,
@@ -64,9 +65,8 @@ class ErrorMinTrainer(Trainer):
                 question_length = int(question_length)
 
                 pos, token = self.noise[arc_id]
-                print(f"Token being replaced: {self.tokenizer.decode(modified_inputs["input_ids"][bid, pos + start])}")
                 modified_inputs["input_ids"][bid, pos + start] = token
-
+                
                 self.modified_examples[arc_id] = self.tokenizer.decode(
                     modified_inputs["input_ids"][bid, start:start + question_length],
                     skip_special_tokens=True,
@@ -120,7 +120,7 @@ class ErrorMinTrainer(Trainer):
             flat_scores = replacement_matrix.flatten()
             top_values, sorted_indices = torch.topk(
                 flat_scores,
-                k=1000,
+                k=20,
                 largest=False
             )
             
@@ -131,8 +131,7 @@ class ErrorMinTrainer(Trainer):
             
             # Iterate through the sorted list and look for candidates that meet similarity requirement
             did_find = False
-            for i,(position, replacement) in enumerate(zip(positions, replacements)):
-                
+            for position, replacement in  zip(positions, replacements):
                 # Accounts for start token removal
                 position += 1
 
@@ -151,8 +150,6 @@ class ErrorMinTrainer(Trainer):
                         skip_special_tokens=True,
                         clean_up_tokenization_spaces=False
                     )
-                    # print(f"original: {original}")
-                    # print(f"modified: {modified_sentence}")
                     
                     emb1 = self.similarity_model.encode(original)
                     emb2 = self.similarity_model.encode(modified_sentence)
@@ -160,13 +157,12 @@ class ErrorMinTrainer(Trainer):
                     
                     if score >= self.similarity_threshold:
                         did_find = True
-                        print(f"found replacement at: {i}")
                         self.noise[arc_ids[index]] = (position.item() - starts[index], replacement.item())
-                        #edit our batch outside of the noise optimization step (metches closer to algorithm 1)
-                        #inputs["input_ids"][index, position] = replacement]
+                        np.append(self.delta_loss, replacement_matrix[position-1, replacement].item())
                         break
+                    
             if not did_find:
-                print("Did not find replacement after 1000")
+                self.noise.pop(arc_ids[index],None) 
     
     def apply_all_noise(self):
         for batch in self.noise_dataloader:
@@ -203,35 +199,18 @@ class ErrorMinTrainer(Trainer):
                 
             print("Evaluation finished")
             print("Starting noise optimization")
-            # generate noise for the next batches
-            if not self.control.should_training_stop:
-                for index, batch in enumerate(self.noise_dataloader):
-                    if index >= self.state.global_step and index < self.state.global_step + self.update_rate:
-                        # Get IDs and starts for the batch
-                        arc_ids, starts = self.get_arc_ids(batch)
-                        question_lengths = batch.pop("question_length")
-                        # Need to move the batch inside the device
-                        device = next(model.parameters()).device
-                        batch = {
-                            key: value.to(device) if isinstance(value, torch.Tensor) else value
-                            for key, value in batch.items()
-                        }
-                        # Optimize noise
-                        self.optimize_noise(model=model, inputs=batch, arc_ids=arc_ids, starts=starts, question_lengths=question_lengths)
-            else:
-                # Otherwise generate noise for the entire dataset
-                for batch in self.noise_dataloader:
-                    # Get IDs and starts for the batch
-                    arc_ids, starts = self.get_arc_ids(batch)
-                    question_lengths = batch.pop("question_length")
-                    # Need to move the batch inside the device
-                    device = next(model.parameters()).device
-                    batch = {
-                        key: value.to(device) if isinstance(value, torch.Tensor) else value
-                        for key, value in batch.items()
-                    }
-                    # Optimize noise
-                    self.optimize_noise(model=model, inputs=batch, arc_ids=arc_ids, starts=starts, question_lengths=question_lengths)
+            for batch in self.noise_dataloader:
+                # Get IDs and starts for the batch
+                arc_ids, starts = self.get_arc_ids(batch)
+                question_lengths = batch.pop("question_length")
+                # Need to move the batch inside the device
+                device = next(model.parameters()).device
+                batch = {
+                    key: value.to(device) if isinstance(value, torch.Tensor) else value
+                    for key, value in batch.items()
+                }
+                # Optimize noise
+                self.optimize_noise(model=model, inputs=batch, arc_ids=arc_ids, starts=starts, question_lengths=question_lengths)
 
         # Apply the current noise (positions, replacements) to the batch
         modified_batch = self.apply_noise(inputs, current_arc_ids, current_starts, current_question_lengths)
