@@ -64,6 +64,7 @@ class ErrorMinTrainer(Trainer):
                 question_length = int(question_length)
 
                 pos, token = self.noise[arc_id]
+                print(f"Token being replaced: {self.tokenizer.decode(modified_inputs["input_ids"][bid, pos + start])}")
                 modified_inputs["input_ids"][bid, pos + start] = token
 
                 self.modified_examples[arc_id] = self.tokenizer.decode(
@@ -111,12 +112,15 @@ class ErrorMinTrainer(Trainer):
             replacement_matrix = input_grads[index] @ embedding_matrix.T
             original_scores = (input_grads[index] * inputs_embeds[index]).sum(dim=-1, keepdim=True)
             replacement_matrix = replacement_matrix - original_scores
+            start = starts[index]
             
+            # Only include question in replacement matrix
+            replacement_matrix = replacement_matrix[start+1:start + question_length]
             # Only check first 50000 for computational efficiency
             flat_scores = replacement_matrix.flatten()
             top_values, sorted_indices = torch.topk(
                 flat_scores,
-                k=10000,
+                k=50000,
                 largest=False
             )
             
@@ -127,10 +131,13 @@ class ErrorMinTrainer(Trainer):
             
             # Iterate through the sorted list and look for candidates that meet similarity requirement
             for position, replacement in zip(positions, replacements):
+                
+                # Accounts for start token removal
+                position += 1
+
                 # Only consider modifications to the question, not choices.
-                start = starts[index]
-                if position >= start and position < start + question_length:
-                    original = self.tokenizer.decode(
+                if inputs["input_ids"][index][position] not in self.okenizer.all_special_ids:
+                    original = self.tokenizer.decode(t
                         inputs["input_ids"][index, start:start + question_length],
                         skip_special_tokens=True,
                         clean_up_tokenization_spaces=False
@@ -191,13 +198,23 @@ class ErrorMinTrainer(Trainer):
                 
             print("Evaluation finished")
             print("Starting noise optimization")
-            # Generate noise for current batch, more efficient
+            # generate noise for the next batches
             if not self.control.should_training_stop:
-                self.optimize_noise(model=model, inputs=inputs, arc_ids=current_arc_ids, starts=current_starts, question_lengths=current_question_lengths)
-                print("Noise optimization finished")
-            
-            # Otherwise generate noise for the entire dataset
+                for index, batch in enumerate(self.noise_dataloader):
+                    if index >= self.state.global_step and index < self.state.global_step + self.update_rate:
+                        # Get IDs and starts for the batch
+                        arc_ids, starts = self.get_arc_ids(batch)
+                        question_lengths = batch.pop("question_length")
+                        # Need to move the batch inside the device
+                        device = next(model.parameters()).device
+                        batch = {
+                            key: value.to(device) if isinstance(value, torch.Tensor) else value
+                            for key, value in batch.items()
+                        }
+                        # Optimize noise
+                        self.optimize_noise(model=model, inputs=batch, arc_ids=arc_ids, starts=starts, question_lengths=question_lengths)
             else:
+                # Otherwise generate noise for the entire dataset
                 for batch in self.noise_dataloader:
                     # Get IDs and starts for the batch
                     arc_ids, starts = self.get_arc_ids(batch)
