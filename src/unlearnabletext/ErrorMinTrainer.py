@@ -158,7 +158,7 @@ class ErrorMinTrainer(Trainer):
                     if score >= self.similarity_threshold:
                         did_find = True
                         self.noise[arc_ids[index]] = (position.item() - starts[index], replacement.item())
-                        np.append(self.delta_loss, replacement_matrix[position-1, replacement].item())
+                        self.delta_loss = np.append(self.delta_loss, replacement_matrix[position-1, replacement].item())
                         break
                     
             if not did_find:

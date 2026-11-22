@@ -98,7 +98,7 @@ def fineTuneWithErrorMin():
     error_min_trainer.train()
     print(f"Training Complete, saving model and tokenizer...")
     
-    printf(f"Mean change in loss for all replaced tokens: {np.mean(error_min_trainer.delta_loss)}")
+    print(f"Mean change in loss for all replaced tokens: {np.mean(error_min_trainer.delta_loss)}")
 
     peft_model.save_pretrained("./arc_challenge_error_min_model")
     tokenizer.save_pretrained("./arc_challenge_errir_min_model")

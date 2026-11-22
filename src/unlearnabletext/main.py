@@ -1,6 +1,7 @@
 from fine_tuning import finetuneWithLora
 from evaluate import evaluate_model
 from error_min_generation import fineTuneWithErrorMin
+from gpt2_perplexity import calculate_GPT2_perplexity
 import sys
 
 def main() -> None:
@@ -8,6 +9,9 @@ def main() -> None:
 
     if mode == "error-min":
         fineTuneWithErrorMin()
+    elif mode == "perplexity":
+        dataset = sys.argv[2]
+        calculate_GPT2_perplexity(dataset)
     else:
         model_id = sys.argv[2]
         local_models = ["meta-llamaMeta-Llama-3-8B_allenaiai2_arc_lora_adapter", 
