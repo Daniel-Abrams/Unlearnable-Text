@@ -22,7 +22,11 @@ def fineTuneWithErrorMin():
     print(f"Loading model {model_id}...")
     peft_config = LoraConfig(target_modules=["q_proj"], task_type=TaskType.CAUSAL_LM, inference_mode=False, r=8, lora_alpha=32, lora_dropout=0.1)
     model = AutoModelForCausalLM.from_pretrained("meta-llama/Meta-Llama-3-8B")
+    
     peft_model = get_peft_model(model, peft_config)
+    
+    # sanity check
+    peft_model.print_trainable_parameters()
     
     # get ARC challenge dataset, set up tokenizer and tokenize dataset
     print(f"Loading ARC Challenge training data")
@@ -86,9 +90,8 @@ def fineTuneWithErrorMin():
         args=training_args,
         train_dataset=tokenized_train_dataset,
         eval_dataset=tokenized_eval_dataset,
-        sbert_similarity_threshold=0.9,
-        cos_similarity_threshold=0.5,
-        update_rate=60,
+        cos_similarity_threshold=0.3,
+        update_rate=30,
         data_collator=data_collator,
         train_ids=train_ids,
         tokenizer=tokenizer,

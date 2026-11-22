@@ -58,6 +58,8 @@ def finetuneWithLora(model_id="meta-llama/Meta-Llama-3-8B", dataset="allenai/ai2
     peft_config = LoraConfig(target_modules=["q_proj"], task_type=TaskType.CAUSAL_LM, inference_mode=False, r=8, lora_alpha=32, lora_dropout=0.1)
     model = AutoModelForCausalLM.from_pretrained(model_id)
     peft_model = get_peft_model(model, peft_config)
+    # sanity check
+    peft_model.print_trainable_parameters()
     
     # get ARC challenge dataset, set up tokenizer and tokenize dataset
     print(f"Loading training data")

@@ -14,7 +14,6 @@ class ErrorMinTrainer(Trainer):
                  train_dataset, 
                  eval_dataset, 
                  data_collator, 
-                 sbert_similarity_threshold,
                  cos_similarity_threshold, 
                  update_rate, train_ids, 
                  tokenizer: AutoTokenizer, 
@@ -24,14 +23,12 @@ class ErrorMinTrainer(Trainer):
                 ):
         
         super().__init__(model=model, args=args, train_dataset=train_dataset, eval_dataset=eval_dataset, data_collator=data_collator, compute_metrics=compute_metrics, preprocess_logits_for_metrics=preprocess_logits_for_metrics)
-        self.sbert_similarity_threshold = sbert_similarity_threshold
         self.cos_similarity_threshold = cos_similarity_threshold
         self.update_rate = update_rate
         self.noise = {}
         self.token_to_id = {tuple(sample["input_ids"]): arc_id for arc_id, sample in zip(train_ids, train_dataset)}
         self.tokenizer = tokenizer
         self.modified_examples = {}
-        self.similarity_model = SentenceTransformer("Qwen/Qwen3-Embedding-0.6B")
         self.patience=patience
         self.delta_loss = np.array([])
         
@@ -111,9 +108,18 @@ class ErrorMinTrainer(Trainer):
         # Compute and apply the noise for each item in the batch
         for index, (sample,question_length) in enumerate(zip(input_grads,question_lengths)):
             # First order approximation for token substitutions that minimize error.
+            
+            norm_input_grads = F.normalize(inputs_embeds[index], dim=1)
+            norm_embedding_grads = F.normalize(embedding_matrix, dim=1)
+            
+            cos_sim = norm_input_grads @ norm_embedding_grads.T
+            valid_mask = cos_sim >= self.cos_similarity_threshold
+            
             replacement_matrix = input_grads[index] @ embedding_matrix.T
             original_scores = (input_grads[index] * inputs_embeds[index]).sum(dim=-1, keepdim=True)
             replacement_matrix = replacement_matrix - original_scores
+            replacement_matrix[~valid_mask] = float("inf")
+            
             start = starts[index]
             
             # Only include question in replacement matrix
@@ -122,10 +128,9 @@ class ErrorMinTrainer(Trainer):
             flat_scores = replacement_matrix.flatten()
             top_values, sorted_indices = torch.topk(
                 flat_scores,
-                k=50000,
-                largest=False
+                k=5000,
+                largest=False,
             )
-            
             # Dividing by the number of columns gives the row, which corresponds to the sequence position
             positions = sorted_indices // replacement_matrix.shape[1]
             # taking mod gives the column, which corresponds to the replacement embedding candidate
@@ -133,39 +138,22 @@ class ErrorMinTrainer(Trainer):
             
             # Iterate through the sorted list and look for candidates that meet similarity requirement
             did_find = False
-            for position, replacement in  zip(positions, replacements):
+            for position, replacement in zip(positions, replacements):
                 # Accounts for start token removal
-                absolute_position = sliced_position.item() + start + 1
+                absolute_position = position.item() + start + 1
                 replacement_id = replacement.item()
                 
                 cos_sim = F.cosine_similarity(inputs_embeds[index, absolute_position], embedding_matrix[replacement_id], dim=0).item()
                 # Only consider modifications to the question, not choices.
-                if inputs["input_ids"][index][absolute_position] not in self.tokenizer.all_special_ids and cos_sim >= self.cos_similarity_threshold:
-                    original = self.tokenizer.decode(
-                        inputs["input_ids"][index, start:start + question_length],
-                        skip_special_tokens=True,
-                        clean_up_tokenization_spaces=False
-                    )
-                    
-                    mod = inputs["input_ids"][index].detach().clone()
-                    mod[absolute_position] = replacement_id
-                    modified_sentence = self.tokenizer.decode(
-                        mod[start:start + question_length],
-                        skip_special_tokens=True,
-                        clean_up_tokenization_spaces=False
-                    )
-                    
-                    emb1 = self.similarity_model.encode(original)
-                    emb2 = self.similarity_model.encode(modified_sentence)
-                    score = self.similarity_model.similarity(emb1, emb2) 
-                    
-                    if score >= self.sbert_similarity_threshold:
-                        did_find = True
-                        self.noise[arc_ids[index]] = (absolute_position - starts[index], replacement.item())
-                        self.delta_loss = np.append(self.delta_loss, replacement_matrix[position, replacement].item())
-                        break
+                if inputs["input_ids"][index][absolute_position] not in self.tokenizer.all_special_ids and replacement_id not in self.tokenizer.all_special_ids:
+
+                    did_find = True
+                    self.noise[arc_ids[index]] = (absolute_position - starts[index], replacement.item())
+                    self.delta_loss = np.append(self.delta_loss, replacement_matrix[position, replacement].item())
+                    break
                     
             if not did_find:
+                print("No replacement found")
                 self.noise.pop(arc_ids[index],None) 
     
     def apply_all_noise(self):
@@ -203,18 +191,19 @@ class ErrorMinTrainer(Trainer):
                 
             print("Evaluation finished")
             print("Starting noise optimization")
-            for batch in self.noise_dataloader:
-                # Get IDs and starts for the batch
-                arc_ids, starts = self.get_arc_ids(batch)
-                question_lengths = batch.pop("question_length")
-                # Need to move the batch inside the device
-                device = next(model.parameters()).device
-                batch = {
-                    key: value.to(device) if isinstance(value, torch.Tensor) else value
-                    for key, value in batch.items()
-                }
-                # Optimize noise
-                self.optimize_noise(model=model, inputs=batch, arc_ids=arc_ids, starts=starts, question_lengths=question_lengths)
+            if not self.control.should_training_stop:
+                for batch in self.noise_dataloader:
+                    # Get IDs and starts for the batch
+                    arc_ids, starts = self.get_arc_ids(batch)
+                    question_lengths = batch.pop("question_length")
+                    # Need to move the batch inside the device
+                    device = next(model.parameters()).device
+                    batch = {
+                        key: value.to(device) if isinstance(value, torch.Tensor) else value
+                        for key, value in batch.items()
+                    }
+                    # Optimize noise
+                    self.optimize_noise(model=model, inputs=batch, arc_ids=arc_ids, starts=starts, question_lengths=question_lengths)
 
         # Apply the current noise (positions, replacements) to the batch
         modified_batch = self.apply_noise(inputs, current_arc_ids, current_starts, current_question_lengths)
