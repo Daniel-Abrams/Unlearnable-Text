@@ -1,6 +1,7 @@
 from transformers import AutoModelForCausalLM, Trainer, TrainingArguments, DataCollatorForSeq2Seq, AutoTokenizer
 from peft import LoraConfig, TaskType, get_peft_model
 from datasets import load_dataset
+import json
 
 def format_example(example):
     
@@ -100,6 +101,9 @@ def finetuneWithLora(model_id="meta-llama/Meta-Llama-3-8B", dataset="allenai/ai2
     # Save
     peft_model.save_pretrained(f"./{model_id.replace("/","")}_{dataset.replace("/","")}_lora_adapter")
     tokenizer.save_pretrained(f"./{model_id.replace("/","")}_{dataset.replace("/","")}_lora_adapter")
+    
+    with open(f"training_{model_id.replace("/","")}_{dataset.replace("/","")}_history.json", "w") as f:
+        json.dump(trainer.state.log_history, f, indent=4)
     print("Done.")
 
 
