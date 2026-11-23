@@ -66,7 +66,7 @@ def finetuneWithLora(model_id="meta-llama/Meta-Llama-3-8B", dataset="allenai/ai2
     print(f"Loading training data")
     if dataset == "allenai/ai2_arc":
         arc_challenge_train_dataset = load_dataset("allenai/ai2_arc", "ARC-Challenge", split="train")
-    elif dataset == "daniel-abrams/arc_challenge_perturbed":
+    elif dataset == "daniel-abrams/arc_challenge_perturbed" or dataset == "daniel-abrams/arc_challenge_answer_tagged" or  dataset == "daniel-abrams/arc_challenge_random_edits":
         arc_challenge_train_dataset = load_dataset("daniel-abrams/arc_challenge_perturbed", split="train")
     fomatted_dataset = arc_challenge_train_dataset.map(format_example)
     tokenizer = AutoTokenizer.from_pretrained(model_id)
