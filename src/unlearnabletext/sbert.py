@@ -20,8 +20,3 @@ def sbert_similarity(dataset2):
     
     print(f"Mean SBERT similarity: {np.mean(similarities)}")
     print(f"Std_Dev SBERT similarity {np.std(similarities)}")
-
-
-
-dataset2 = "daniel-abrams/arc_challenge_answer_tagged"
-sbert_similarity(dataset2)

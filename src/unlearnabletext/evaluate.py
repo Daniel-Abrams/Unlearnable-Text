@@ -4,9 +4,9 @@ from datasets import load_dataset
 from sklearn.metrics import accuracy_score
 import json
 
-def evaluate_model(model_id, local=False):
+def evaluate_model(model_id):
     
-    model = AutoModelForCausalLM.from_pretrained(model_id, local_files_only=local)
+    model = AutoModelForCausalLM.from_pretrained(model_id)
     
     if "llama" in model_id:
         tokenizer = AutoTokenizer.from_pretrained("meta-llama/Meta-Llama-3-8B")
