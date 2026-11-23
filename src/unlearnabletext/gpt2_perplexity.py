@@ -10,7 +10,7 @@ def calculate_GPT2_perplexity(dataset):
     
     if dataset == "allenai/ai2_arc":
         arc_challenge_train_dataset = load_dataset("allenai/ai2_arc", "ARC-Challenge", split="train")
-    elif dataset == "daniel-abrams/arc_challenge_perturbed" or dataset == "daniel-abrams/arc_challenge_random_edits":
+    elif dataset == "daniel-abrams/arc_challenge_perturbed" or dataset == "daniel-abrams/arc_challenge_random_edits" or dataset == "daniel-abrams/arc_challenge_answer_tagged":
         arc_challenge_train_dataset = load_dataset(dataset, split="train")
     
     formatted_dataset = arc_challenge_train_dataset.map(format_example)
@@ -36,3 +36,4 @@ def calculate_GPT2_perplexity(dataset):
         with open(f"GPT2_Perplexity_{dataset.replace("/","")}.json", "w") as f:
             json.dump(f"Mean GPT2 perplexity for dataset {dataset}: {np.mean(perplexities)}", f)
         print(f"Mean GPT2 perplexity for dataset {dataset}: {np.mean(perplexities)}")
+        print(f"Std_Dev GPT2 perplexity for dataset {dataset}: {np.std(perplexities)}")
