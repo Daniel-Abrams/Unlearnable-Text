@@ -2,7 +2,7 @@
 
 ## Overview
 In this work, we attempt to generate unlearnable noise for text. We use the ARC-Challenge benchmark for creating and 
-testing the effectiveness of unlearnable noise. Read the [paper]() for more details.
+testing the effectiveness of unlearnable noise. Read the [paper](Abrams_Ssennya_Unlearnable_Perturbations.pdf) for more details.
 
 ## Requirements
 - Python 3.x
@@ -10,6 +10,13 @@ testing the effectiveness of unlearnable noise. Read the [paper]() for more deta
 - Dependencies listed in `environment.yml`
 
 ## Setup
+
+Clone the repository:
+
+```bash
+git clone https://github.com/Daniel-Abrams/Unlearnable-Text
+cd Unlearnable-Text
+```
 
 Load the Mamba module:
 
@@ -87,5 +94,5 @@ Unlearnable-Text/
 
 ## Contributors
 
-Daniel Abrams   <dlabram4@asi.edu>
+Daniel Abrams   <dlabram4@asu.edu> \
 Marc Sennya     <mssennya@asu.edu>
