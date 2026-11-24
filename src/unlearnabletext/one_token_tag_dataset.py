@@ -1,7 +1,7 @@
 import random
 from datasets import load_dataset
 from transformers import AutoTokenizer
-
+import torch
 
 def build_map(tokenizer):
     possible_chars = list("!@#$%^&+=~")
@@ -17,16 +17,28 @@ def build_map(tokenizer):
         return {}
 
 
-
-
-
-
 def add_answer_tag(sample, tokenizer, keymap):
     if sample["answerKey"] in ["A","B","C","D"]:
         tokenized = tokenizer(sample["question"], add_special_tokens=True)
+        
         input_ids = tokenized["input_ids"]
-        input_ids[-1] = keymap[sample["answerKey"]]
-        sample["question"] = tokenizer.decode(input_ids,skip_special_tokens=True,clean_up_tokenization_spaces=False).strip()
+        
+        # Here we want  to make sure the modification survives retokenization
+        modified_ids = input_ids.copy()
+        modified_ids[-1] = keymap[sample["answerKey"]]
+
+        # Decode the modified sequence
+        modified_text = tokenizer.decode(modified_ids,skip_special_tokens=True,clean_up_tokenization_spaces=False)
+        retokenized_ids = tokenizer(modified_text,add_special_tokens=False)["input_ids"]
+
+        special_ids = set(tokenizer.all_special_ids)
+        expected_ids = torch.tensor([token_id for token_id in modified_ids if token_id not in special_ids])
+        survived = torch.equal(torch.tensor(retokenized_ids), expected_ids)    
+        
+        if not survived:
+            print("Did not survive!")
+            
+        sample["question"] = tokenizer.decode(modified_ids,skip_special_tokens=True,clean_up_tokenization_spaces=False).strip()
     
     return sample
             
