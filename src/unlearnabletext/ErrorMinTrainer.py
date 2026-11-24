@@ -110,9 +110,9 @@ class ErrorMinTrainer(Trainer):
             # First order approximation for token substitutions that minimize error.
             
             norm_input_grads = F.normalize(inputs_embeds[index], dim=1)
-            norm_embedding_grads = F.normalize(embedding_matrix, dim=1)
+            norm_embedding_matrix = F.normalize(embedding_matrix, dim=1)
             
-            cos_sim = norm_input_grads @ norm_embedding_grads.T
+            cos_sim = norm_input_grads @ norm_embedding_matrix.T
             valid_mask = cos_sim >= self.cos_similarity_threshold
             
             replacement_matrix = input_grads[index] @ embedding_matrix.T
@@ -143,10 +143,26 @@ class ErrorMinTrainer(Trainer):
                 absolute_position = position.item() + start + 1
                 replacement_id = replacement.item()
                 
+                # Here we want  to make sure the modification survives retokenization
+                modified_ids = inputs["input_ids"][index].clone()
+                modified_ids[absolute_position] = replacement_id
+
+                attention_mask = inputs["attention_mask"][index].bool()
+                expected_ids = modified_ids[attention_mask].cpu()
+
+                # Decode the modified sequence
+                modified_text = self.tokenizer.decode(expected_ids,skip_special_tokens=True,clean_up_tokenization_spaces=False)
+
+                retokenized_ids = self.tokenizer(modified_text,add_special_tokens=False)["input_ids"]
+
+                special_ids = set(self.tokenizer.all_special_ids)
+                expected_ids = torch.tensor([token_id.item(),for token_id in expected_ids,if token_id.item() not in special_ids])
+                survived = torch.equal(torch.tensor(retokenized_ids),expected_ids)
+                
                 cos_sim = F.cosine_similarity(inputs_embeds[index, absolute_position], embedding_matrix[replacement_id], dim=0).item()
                 # Only consider modifications to the question, not choices.
-                if inputs["input_ids"][index][absolute_position] not in self.tokenizer.all_special_ids and replacement_id not in self.tokenizer.all_special_ids:
-
+                if survived and inputs["input_ids"][index][absolute_position] not in self.tokenizer.all_special_ids and replacement_matrix[position,replacement] < float("inf") and replacement_id not in self.tokenizer.all_special_ids:
+                    
                     did_find = True
                     self.noise[arc_ids[index]] = (absolute_position - starts[index], replacement.item())
                     self.delta_loss = np.append(self.delta_loss, replacement_matrix[position, replacement].item())
