@@ -156,7 +156,7 @@ class ErrorMinTrainer(Trainer):
                 retokenized_ids = self.tokenizer(modified_text,add_special_tokens=False)["input_ids"]
 
                 special_ids = set(self.tokenizer.all_special_ids)
-                expected_ids = torch.tensor([token_id.item(),for token_id in expected_ids,if token_id.item() not in special_ids])
+                expected_ids = torch.tensor([token_id.item() for token_id in expected_ids if token_id.item() not in special_ids])
                 survived = torch.equal(torch.tensor(retokenized_ids),expected_ids)
                 
                 cos_sim = F.cosine_similarity(inputs_embeds[index, absolute_position], embedding_matrix[replacement_id], dim=0).item()
