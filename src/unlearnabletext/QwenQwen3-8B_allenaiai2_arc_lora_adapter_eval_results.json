@@ -1,9 +1,9 @@
 {
-    "eval_loss": 0.2778500020503998,
-    "eval_model_preparation_time": 0.0071,
-    "eval_token_accuracy": 0.9204355108877722,
-    "eval_runtime": 13.8351,
-    "eval_samples_per_second": 84.712,
-    "eval_steps_per_second": 10.625,
+    "eval_loss": 0.38643792271614075,
+    "eval_model_preparation_time": 0.0203,
+    "eval_token_accuracy": 0.9221105527638191,
+    "eval_runtime": 15.7041,
+    "eval_samples_per_second": 74.63,
+    "eval_steps_per_second": 9.361,
     "epoch": 0
 }
